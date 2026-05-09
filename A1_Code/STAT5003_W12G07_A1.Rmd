@@ -1,0 +1,469 @@
+---
+title: ""
+author: ""
+output:
+  html_document:
+    code_folding: hide
+---
+```{r library, message = FALSE, warning = FALSE}
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(forcats)
+library(scales)
+library(knitr)
+```
+
+```{css, echo=FALSE}
+body { font-family: "Times New Roman", Times, serif; font-size: 10pt; line-height: 1.3; }
+h2 { margin-top: 0.4em; margin-bottom: 0.15em; }
+h3 { margin-top: 0.3em; margin-bottom: 0.1em; }
+h4 { margin-top: 0.25em; margin-bottom: 0.1em; }
+p  { margin-top: 0.2em; margin-bottom: 0.2em; }
+h1.title { display: none; }
+h4.author { display: none; }
+h4.date   { display: none; }
+```
+
+
+```{r read dataset, message=FALSE, warning=FALSE, results='hide'}
+df_crash <- read_xlsx("nsw_road_crash_data_2020-2024_crash.xlsx")
+df_unit <- read_xlsx("nsw_road_crash_data_2020-2024_traffic_unit.xlsx")
+str(df_crash)
+str(df_unit)
+```
+```{r read merged dataset, message=FALSE, warning=FALSE, results='hide'}
+df_merged <- left_join(df_crash, df_unit, by = "Crash ID")
+write.csv(df_merged, "nsw_road_crash_merged_2020_2024.csv", row.names = FALSE)
+str(df_merged)
+```
+### 1 Framing & Dataset Selection
+
+#### 1.1 Research Question
+
+Given environmental conditions (weather, lighting, road surface, speed limit) and traffic unit characteristics (TU type, manoeuvre, number of units), can we predict NSW road crash severity (Fatal / Injury / Non-casualty): a three-class classification problem ?                                                        
+  
+#### 1.2 Motivation                                                
+
+NSW recorded 340 road fatalities in 2024, with over two-thirds in regional areas (Transport for NSW, 2025). A predictive model for crash severity has direct value for: **Traffic Authorities** (targeted speed and road interventions), **Emergency Responders** (faster, evidence-based resource allocation), and **Policymakers & Insurers** (precise policy and pricing decisions). The combined dataset’s 170,962 records with 59 variables, containing environmental, temporal, and vehicle-level features, are well-suited to addressing this research question. Combining crash-level and traffic unit data enables a more comprehensive understanding of both environmental and vehicle-level factors influencing crash severity, strengthening the predictive potential of the analysis.
+
+### 2 Consider & Gather Data 
+
+#### 2.1 Data Source 
+
+Sourced from Transport for NSW via the Australian Government open data platform ([link](https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data)). Two files were used for 2020–2024: **CRASH.xlsx** (crash details, time, location, environment) and **TRAFFIC UNIT.xlsx** (vehicle type, manoeuvre, role, controlled flag), merged on Crash ID.
+
+#### 2.2 Dataset Overview
+
+Merging CRASH (92,189 records) and TRAFFIC UNIT (170,962 records) on Crash ID yields 170,962 vehicle-level records, enabling vehicle-specific features to enrich crash severity prediction.
+
+
+#### 2.3 Dataset Justification
+```{r, results='hide'}
+cat("Merged:", nrow(df_merged), "rows,", ncol(df_merged), "cols\n")
+colSums(is.na(df_merged))
+```
+
+```{r na visualisation, fig.width=7, fig.height=3}
+na_counts <- colSums(is.na(df_merged))
+na_df <- data.frame(
+  variable = names(na_counts),
+  missing = na_counts
+) |> subset(missing > 0)
+
+ggplot(na_df, aes(x = reorder(variable, -missing), y = missing)) +
+  geom_bar(stat = "identity", fill = "tomato") +
+  labs(title = "Missing Values by Column", x = "Column", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+**The dataset meets the four key requirements outlined in the assignment:**
+
+| Requirement | How it is met |
+|-------------|---------------|
+| **Large (>10,000 obs.)** | 170,962 merged records; sufficient for robust modelling and train/test validation. |
+| **Integrated (multiple sources)** | Crash and Traffic Unit tables merged via `Crash ID`; has 59 variables combining environmental, spatial, and vehicle-level features. |
+| **Messy (real-world challenges)** | Missing values throughout; high-NA columns (>95%) dropped; moderate-NA columns require imputation; merging introduces sparsity. |
+| **Multi-class classification** | Target `Degree of crash`: Fatal, Injury, Non-casualty; heavily imbalanced (Fatal ~1.4%), requiring imbalance-aware modelling. |
+
+
+### 3 Exploratory Data Analysis (EDA)
+#### 3.1 Univariate Analysis
+##### 3.1.1 Distribution
+```{r 311-row1, out.width='25%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+ggplot(df_merged, aes(x = fct_infreq(`Degree of crash`))) +
+    geom_bar() +
+    geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+    labs(title = "Distribution of Crash Severity", x = "Severity", y = "Count") +
+    theme_minimal() + theme(legend.position = "none")
+
+ggplot(df_merged, aes(x = fct_infreq(Weather))) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Weather Conditions", x = "Weather", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::comma)
+
+ggplot(df_merged, aes(x = fct_infreq(`Natural lighting`))) +
+  geom_bar(fill = "orange") +
+  labs(title = "Distribution of Natural Lighting", x = "Lighting", y = "Count") +
+  theme_minimal()
+
+df_merged$`Speed limit` <- factor(df_merged$`Speed limit`,
+                              levels = c("10 km/h", "20 km/h", "30 km/h", "40 km/h",
+                                         "50 km/h", "60 km/h", "70 km/h", "80 km/h",
+                                         "90 km/h", "100 km/h", "110 km/h", "Unknown"))
+ggplot(df_merged, aes(x = `Speed limit`)) +
+  geom_bar(fill = "tomato") +
+  labs(title = "Distribution of Speed Limit", x = "Speed Limit", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r 311-row2, out.width='25%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+ggplot(df_merged, aes(x = `Surface condition`)) +
+  geom_bar(fill = "darkgreen") +
+  labs(title = "Distribution of Surface Condition", x = "Surface Condition", y = "Count") +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma)
+
+ggplot(df_merged, aes(x = fct_infreq(Urbanisation))) +
+  geom_bar(fill = "purple") +
+  labs(title = "Distribution of Urbanisation", x = "Urbanisation", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = fct_infreq(`TU type group`))) +
+    geom_bar(fill = "steelblue") +
+    labs(title = "Distribution of Traffic Unit Type", x = "TU Type", y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = fct_infreq(Manoeuvre))) +
+    geom_bar(fill = "coral") +
+    labs(title = "Distribution of Manoeuvre", x = "Manoeuvre", y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r 311-row3, out.width='50%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+ggplot(df_merged, aes(x = `TU role in first impact`)) +
+    geom_bar(fill = "gold") +
+    labs(title = "Distribution of TU Role in First Impact", x = "Role", y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+df_tu <- df_merged %>%
+    mutate(`TU group` = ifelse(`No. of traffic units involved` >= 6, "6+",
+                                as.character(`No. of traffic units involved`)))
+df_tu$`TU group` <- factor(df_tu$`TU group`, levels = c("1", "2", "3", "4", "5", "6+"))
+ggplot(df_tu, aes(x = `TU group`)) +
+  geom_bar(fill = "slateblue") +
+  labs(title = "Distribution of No. of Traffic Units Involved", x = "No. of Traffic Units", y = "Count") +
+  theme_minimal()
+```
+
+**Key Findings:**
+
+-  Significant class imbalance - Fatal(~1.4%), accuracy alone can be misleading 
+-  Most crashes occur in fine weather, daylight, and 50–60 km/h zones. Signals come from rarer combinations favouring interaction capturing tree models
+
+##### 3.1.2 Missing Values
+```{r na check, results='hide'}
+colSums(is.na(df_merged))
+```
+Core modelling variables (Weather, Speed limit, Natural lighting, Degree of crash) have no missing values. Primary hazardous feature (168,803), Primary temporary feature (168,406), and Object hit 2 (165,996) have very high missingness due to their conditional nature and will be dropped as no significant imputation is possible with missingness > 50%.
+
+##### 3.1.3 Outliers for Key Variables
+```{r summary of TU group, results='hide'}
+summary(df_merged$`No. of traffic units involved`)
+```
+
+```{r boxplot-tu, fig.width=5, fig.height=3}
+ggplot(df_merged, aes(y = `No. of traffic units involved`)) +
+  geom_boxplot(fill = "steelblue", outlier.colour = "red", outlier.size = 1) +
+  scale_y_log10() +
+  labs(title = "Boxplot of No. of Traffic Units Involved (Log Scale)",
+       y = "No. of Traffic Units (log scale)") +
+  theme_minimal()
+```
+
+**Traffic units**: median 2 (mean 2.15), IQR 1–2; max 26 is an extreme outlier likely capped.
+
+#### 3.2 Bivariate Analysis
+##### 3.2.1 Features vs Outcomes
+```{r 321-row1, out.width='25%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+ggplot(df_merged, aes(x = Weather, fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Weather", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = `Speed limit`, fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Speed Limit", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = `Natural lighting`, fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Natural Lighting", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = `TU type group`, fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by TU Type", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r 321-row2, out.width='25%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+ggplot(df_merged, aes(x = fct_infreq(factor(Manoeuvre)), fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Manoeuvre", x = "Manoeuvre", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7))
+
+ggplot(df_merged, aes(x = fct_infreq(factor(Urbanisation)), fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Urbanisation", x = "Urbanisation", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(df_merged, aes(x = fct_infreq(factor(`Surface condition`)), fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by Surface Condition", x = "Surface Condition", y = "Proportion") +
+  theme_minimal()
+
+ggplot(df_merged, aes(x = `TU controlled flag`, fill = `Degree of crash`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Crash Severity by TU Controlled Flag", x = "Controlled", y = "Proportion") +
+  theme_minimal()
+```
+
+**Key Findings:**
+
+-  Speed limit shows the strongest relationship with severity: 100–110 km/h zones have noticeably higher Fatal proportions. 
+-  Pedestrians and motorcycles show elevated Injury proportions, validation planned in in preprocessing
+-  uncontrolled TUs have higher Non-casualty proportions, confirming it carries discriminative signal for Non-casualty
+
+##### 3.2.2 Features vs Features
+```{r 322-row1, out.width='33%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+df_merged %>%
+  group_by(Weather, `Natural lighting`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(Weather != "Unknown", `Natural lighting` != "Unknown") %>%
+  ggplot(aes(x = `Natural lighting`, y = Weather, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Weather vs Natural Lighting", fill = "Count") +
+  theme_minimal()
+
+df_merged %>%
+  group_by(`Speed limit`, Urbanisation) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = Urbanisation, y = `Speed limit`, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "tomato") +
+  labs(title = "Speed Limit vs Urbanisation", fill = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+df_merged %>%
+  group_by(Weather, `Surface condition`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(Weather != "Unknown", `Surface condition` != "Unknown") %>%
+  ggplot(aes(x = `Surface condition`, y = Weather, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Weather vs Surface Condition", fill = "Count") +
+  theme_minimal()
+```
+```{r 322-row2, out.width='50%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+df_merged %>%
+  group_by(`TU type group`, Manoeuvre) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = Manoeuvre, y = `TU type group`, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "tomato") +
+  labs(title = "TU Type vs Manoeuvre", fill = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7))
+
+df_merged %>%
+  group_by(Urbanisation, `Natural lighting`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  filter(`Natural lighting` != "Unknown") %>%
+  ggplot(aes(x = `Natural lighting`, y = Urbanisation, fill = count)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "purple") +
+  labs(title = "Urbanisation vs Natural Lighting", fill = "Count") +
+  theme_minimal()
+```
+**Key Findings:**
+
+-  Speed Limit and Urbanisation are strongly co-linear. Logistic Regression and KNN will require encoding while trees can handle this natively. 
+-  Weather and Surface show correlation suggesting is_wet is a feature to consolidate signal 
+-  Crashes predominantly in daylight across urbanization categories.Validate via post-modelling feature importance
+
+#### 3.3 Additional Visualisations
+
+##### 3.3.1 Temporal Patterns
+```{r eda-helpers, message=FALSE, warning=FALSE}
+day_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+df_merged$`Day of week of crash` <- factor(df_merged$`Day of week of crash`, levels = day_levels)
+df_merged$`Two-hour intervals` <- factor(df_merged$`Two-hour intervals`, levels = unique(df_merged$`Two-hour intervals`))
+df_merged$`Reporting year` <- factor(df_merged$`Reporting year`, levels = sort(unique(df_merged$`Reporting year`)))
+```
+```{r temporal-pair, out.width='50%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+df_merged %>%
+  group_by(`Day of week of crash`, `Two-hour intervals`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = `Two-hour intervals`, y = `Day of week of crash`, fill = count)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Crash Frequency by Day & Time", x = "Two-hour Interval", y = "Day of Week", fill = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+df_merged %>%
+  group_by(`Reporting year`, `Degree of crash`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = `Reporting year`, y = count, fill = `Degree of crash`)) +
+  geom_col(position = "fill") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Crash Severity by Year", x = "Reporting Year", y = "Proportion", fill = "Severity") +
+  theme_minimal()
+```
+Crash frequency peaks during daytime and commuting hours, with severity proportions stable across years, confirming class imbalance is a persistent structural feature requiring imbalance-aware modelling.
+
+##### 3.3.2 Risk & Spatial Patterns
+```{r risk-spatial, out.width='33%', fig.show='hold', fig.height=3, message=FALSE, warning=FALSE}
+fatal_heatmap <- df_merged %>%
+  filter(!is.na(`Speed limit`), !is.na(Urbanisation), !is.na(`Degree of crash`)) %>%
+  group_by(`Speed limit`, Urbanisation) %>%
+  summarise(total = n(), fatal_rate = mean(`Degree of crash` == "Fatal"), .groups = "drop") %>%
+  filter(total >= 100)
+
+ggplot(fatal_heatmap, aes(x = Urbanisation, y = `Speed limit`, fill = fatal_rate)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "darkred", labels = scales::percent_format(accuracy = 0.1)) +
+  labs(title = "Fatal Rate by Speed & Urbanisation", x = "Urbanisation", y = "Speed Limit", fill = "Fatal %") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+top_lga <- df_merged %>% filter(!is.na(LGA)) %>% count(LGA, sort = TRUE) %>% slice_head(n = 10)
+ggplot(top_lga, aes(x = reorder(LGA, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 LGAs by Crash Count", x = "LGA", y = "Count") +
+  theme_minimal()
+
+tu_fatal <- df_merged %>%
+  filter(!is.na(`TU type group`), !is.na(`Degree of crash`)) %>%
+  group_by(`TU type group`) %>%
+  summarise(total = n(), fatal_rate = mean(`Degree of crash` == "Fatal"), .groups = "drop") %>%
+  filter(total >= 100) %>% arrange(desc(fatal_rate))
+ggplot(tu_fatal, aes(x = reorder(`TU type group`, fatal_rate), y = fatal_rate)) +
+  geom_col(fill = "tomato") +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  labs(title = "Fatal Rate by Traffic Unit Type", x = "TU Type", y = "Fatal %") +
+  theme_minimal()
+```
+```{r high-risk-scenarios-table}
+risk_table <- df_merged %>%
+  filter(!is.na(`Speed limit`), !is.na(`Natural lighting`), !is.na(Urbanisation), !is.na(`Degree of crash`)) %>%
+  group_by(`Speed limit`, `Natural lighting`, Urbanisation) %>%
+  summarise(total_crashes = n(), fatal_prop = mean(`Degree of crash` == "Fatal"),
+            injury_prop = mean(`Degree of crash` == "Injury"),
+            non_casualty_prop = mean(`Degree of crash` == "Non-casualty (towaway)"), .groups = "drop") %>%
+  filter(total_crashes >= 200) %>%
+  arrange(desc(fatal_prop), desc(total_crashes)) %>%
+  slice_head(n = 10) %>%
+  mutate(fatal_prop = scales::percent(fatal_prop, accuracy = 0.1),
+         injury_prop = scales::percent(injury_prop, accuracy = 0.1),
+         non_casualty_prop = scales::percent(non_casualty_prop, accuracy = 0.1)) %>%
+  rename(`Speed Limit` = `Speed limit`, `Natural Lighting` = `Natural lighting`,
+         `Total Crashes` = total_crashes, `Fatal %` = fatal_prop,
+         `Injury %` = injury_prop, `Non-casualty %` = non_casualty_prop)
+knitr::kable(risk_table, caption = "High-risk crash scenarios ranked by fatal proportion")
+```
+**Key Findings:**
+
+-  Fatal rates are highest in high-speed, less-urbanised zones favoring interaction based models
+-  crash counts concentrate in a few LGAs, justifying planned pooling to prevent high cardinality overfitting 
+-  fatal proportions vary by traffic unit type, confirming TU-level binary flag adds predictive value  
+
+
+### 4 Project Planning
+#### 4.1 Preprocessing Plan
+
+All data-dependent steps will be performed **within cross-validation folds** to prevent data leakage (James et al., 2021).
+
+| Step | Action | Key Details |
+|------|--------|-------------|
+| 1. Data Integration | Aggregate TU → crash level; left-join on `Crash ID` | Binary TU flags (`has_heavy_vehicle`, `has_motorcycle`, etc.); TU type count |
+| 2. Feature Removal | Drop leakage, identifiers, redundant & sparse columns | Remove `No. killed`, injury counts (leakage); `Street`, `Route no.` (redundant); columns >75% NA |
+| 3. Missing Values | Targeted imputation per variable | Drop >50% NA; binary flags where informative; categoricals → "Unknown"; numeric → median |
+| 4. Feature Engineering | Derive binary & grouped features | `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`; speed bands (≤50, 60–80, 90–100, 110+) |
+| 5. Outlier Detection | Remove geospatial & distance outliers | Drop outside NSW bounds; winsorise `Distance` at 99th percentile |
+| 6. Encoding | Model-dependent categorical encoding | Trees: R `factor`; kNN/LR: one-hot/ordinal; pool rare `LGA` (<1%) into `"Other"` |
+| 7. Scaling | Standardise numerics for distance-based models | Z-score within fold for kNN; trees scale-invariant; add missingness indicators where informative |
+| 8. Class Imbalance | Resample within training fold only | SMOTE for Fatal minority class; compare with down-sampling during tuning (Chawla et al., 2002) |
+| 9. Train/Test Split | 80/20 stratified split; nested 5-fold CV | Inner CV loop for model tuning, outer loop for performance estimation to avoid optimistic bias, fitted on training data only per fold |
+
+#### 4.2 Model Plan: Proposed Classification Models
+
+Six models selected to handle the three-class imbalanced target and predominantly categorical predictor set; all implemented in R via `caret` for a unified CV interface.
+
+| # | Model | Justification | Implementation |
+|---|-------|---------------|----------------|
+| 1 | Multinomial Logistic Regression | Interpretable baseline; log-odds per predictor meaningful for stakeholders. All models benchmarked against this. | `multinom()` from `nnet`; dummy-encoded predictors; inverse-frequency case weights via `caret`. |
+| 2 | Decision Tree | Fully interpretable; captures interactions (e.g., high speed + rural → fatal) in a single branch. | `rpart`; depth tuned via CV; visualised with `rpart.plot`. |
+| 3 | Random Forest | Bootstrap ensemble reduces variance; variable importance scores rank predictors. | `randomForest`; `classwt` for imbalance; feasible at >90k obs. |
+| 4 | XGBoost | High-performance; sequential correction of misclassifications effective for rare Fatal class. | `xgboost`; `nrounds`, `max_depth`, `eta` tuned via `caret`; per-class sample weights for imbalance. |
+| 5 | KNN | Non-parametric; tests local consistency — do similar-condition crashes share severity? | `kknn`; one-hot encoded categorical features with Euclidean distance; optimal $k$ via CV. |
+| 6 | Naive Bayes | Natural for categorical-dominant data; probabilistic benchmark for individual feature signal. | `e1071`; fast under conditional independence; outputs class probabilities. |
+
+#### 4.3 Evaluation Plan: Evaluation Framework
+
+Accuracy is unsuitable as primary metric given severe class imbalance (Fatal ~1.4%); the metrics below prioritise rare Fatal-class detection.
+
+| Metric | Role | Justification |
+|--------|------|---------------|
+| Macro-Averaged F1 Score | Primary | Equal-weight F1 across all 3 classes; ensures Fatal class not ignored despite low frequency. Primary model selection metric. |
+| Fatal Class Recall | Primary Constraint | % of actual Fatal crashes correctly flagged; hard constraint (≥ 0.50) — models below this are deprioritised regardless of overall F1. |
+| Weighted F1 Score | Secondary | F1 weighted by class support; reflects real-world class distribution alongside macro F1. |
+| Cohen's Kappa (κ) | Secondary | Chance-adjusted accuracy; near-zero = no better than random. Via `caret`'s `confusionMatrix()`. |
+| Confusion Matrix | Secondary | 3×3 heatmap showing misclassification direction — e.g., Fatal predicted as Injury (most dangerous error). |
+| CV Strategy | Validation | 80/20 stratified split; nested 5-fold CV (inner: tuning, outer: estimation); 2024 data as temporal holdout; test set evaluated once. |
+
+#### 4.4 Timeline and Project Milestones
+
+- **1–10 Apr:** Problem framing, data acquisition, and integration (dataset sourcing, merge, missingness analysis; team split across sourcing, merging, and validation)
+- **10–17 Apr:** EDA and feature planning (univariate, bivariate analysis, feature selection; team split across visualisation, interpretation, and documentation)
+- **17–19 Apr:** Report submission (EDA and planning sections compiled and reviewed collaboratively)
+- **6–15 May:** Preprocessing and model development (pipeline implementation; each member develops at least one classification model, with parallel baseline and advanced models)
+- **16–20 May:** Model evaluation and final report (performance comparison, model selection, results consolidation; split across evaluation, visualisation, and write-up)
+- **21–24 May:** Final edits and submission (refinement, formatting, and QA across sections)
+
+**Team & Backup:** Work is distributed so that at least three members contribute to each phase, with all member are responsible for at least one classification model. Two members are designated as standby per sprint to cover delays if needed. Progress is tracked through twice-weekly meetings (Monday on Zoom, Thursday in-person), supported by a shared GitHub repository for version control and task continuity.
+
+### References
+
+Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE: Synthetic minority over-sampling technique. *Journal of Artificial Intelligence Research*, *16*, 321–357. https://doi.org/10.1613/jair.953
+
+James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An introduction to statistical learning: With applications in R* (2nd ed.). Springer. https://doi.org/10.1007/978-1-0716-1418-1
+
+Transport for NSW. (2024). *NSW road crash data 2020–2024* [Dataset]. Australian Government Open Data Platform. https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data
+
+Transport for NSW. (2025). *NSW road safety progress report 2024*. Centre for Road Safety. https://www.transport.nsw.gov.au/system/files/media/documents/2025/crs_road_safety_progress_report_2024.pdf
+
+### Acknowledgement of AI
+
+Group 07 (Workshop 12) declares that all ideas, analysis, and written content 
+presented in this report are our own. We did not use generative AI to write our 
+code. We used ChatGPT (GPT-5.3, OpenAI, https://chatgpt.com) and Claude Sonnet 4.5 
+(Anthropic, https://claude.ai) for code refinement, grammar checking, and 
+reviewing our report against the marking rubric.
