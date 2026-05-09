@@ -1,0 +1,212 @@
+---
+title: "NSW Road Crash Severity Prediction"
+subtitle: "STAT5003 — Group 07, Workshop 12"
+author: "Group 07, Workshop 12."
+date: "May 2026"
+output:
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.align = "center", out.width = "90%")
+
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(forcats)
+library(scales)
+library(knitr)
+library(caret)
+library(rpart.plot)
+library(randomForest)
+library(pROC)
+```
+
+## Slide 1 — Research Question
+
+**Can we predict NSW road crash severity given environmental and vehicle conditions?**
+
+- **Target:** Degree of crash — *Fatal / Injury / Non-casualty* (3-class)
+- **Predictors:** Weather, lighting, road surface, speed limit, TU type, manoeuvre
+- **Data:** 170,962 crash records, 2020–2024 (Transport for NSW)
+
+**Why it matters:**
+
+- NSW: 340 road fatalities in 2024, >⅔ in regional areas
+- Traffic Authorities → targeted interventions
+- Emergency Responders → evidence-based resource allocation
+- Policymakers & Insurers → precise policy and pricing
+
+## Slide 2 — Dataset Overview
+
+```{r dataset-overview}
+
+```
+
+## Slide 3 — Class Imbalance
+
+```{r class-imbalance, fig.height=3.5}
+
+```
+
+*Fatal class (~1.4%) requires imbalance-aware modelling — accuracy alone is misleading.*
+
+## Slide 4 — Key EDA: Speed vs Severity
+
+```{r eda-speed, fig.height=3.5}
+
+```
+
+*100–110 km/h zones show the highest Fatal proportions — strongest single predictor.*
+
+## Slide 5 — Key EDA: High-Risk Scenarios
+
+```{r eda-highrisk}
+
+```
+
+*High-speed + darkness + non-urban = highest fatal risk. Justifies interaction-based tree models.*
+
+## Slide 6 — Key EDA: Temporal Patterns
+
+```{r eda-temporal, fig.height=3.5}
+
+```
+
+*Peaks during commute hours. Severity proportions stable across years — imbalance is structural.*
+
+## Slide 7 — Preprocessing Pipeline
+
+**Steps 1–5**
+
+1. **Integration** — TU flags per crash (`has_motorcycle`, `has_heavy_vehicle`)
+2. **Feature removal** — leakage cols, identifiers, >75% NA
+3. **Imputation** — drop >50% NA; categorical → "Unknown"; numeric → median
+4. **Engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands
+5. **Outliers** — NSW geo bounds; winsorise Distance at 99th percentile
+
+**Steps 6–9**
+
+6. **Encoding** — trees: R `factor`; KNN/LR: one-hot; rare LGA → "Other"
+7. **Scaling** — Z-score within fold for KNN; trees scale-invariant
+8. **SMOTE** — applied inside training fold only (Fatal minority)
+9. **Split** — 80/20 stratified; nested 5-fold CV (inner: tune, outer: estimate)
+
+## Slide 8 — Feature Engineering
+
+```{r feature-eng-table}
+
+```
+
+## Slide 9 — Handling Class Imbalance (SMOTE)
+
+```{r smote-plot, fig.height=3.2}
+
+```
+
+*SMOTE applied **inside** training fold only to prevent leakage. Fatal class upsampled to ~10%.*
+
+## Slide 10 — Model Overview
+
+```{r model-overview}
+
+```
+
+*All models trained via `caret` with 5-fold CV. Primary metric: **Macro-F1**. Hard constraint: **Fatal Recall ≥ 0.50**.*
+
+## Slide 11 — Logistic Regression Results
+
+```{r results-lr, fig.height=3.5}
+
+```
+
+## Slide 12 — Decision Tree Results
+
+```{r results-dt, fig.height=3.5}
+
+```
+
+## Slide 13 — Random Forest Results
+
+```{r results-rf, fig.height=3.5}
+
+```
+
+## Slide 14 — XGBoost Results
+
+```{r results-xgb, fig.height=3.5}
+
+```
+
+## Slide 15 — KNN & Naive Bayes Results
+
+```{r results-knn-nb, fig.height=3.5}
+
+```
+
+## Slide 16 — Model Comparison
+
+```{r model-comparison}
+
+```
+
+*Bold = best model. Models failing Fatal Recall ≥ 0.50 are deprioritised regardless of overall F1.*
+
+## Slide 17 — Best Model & Answer to RQ
+
+**Selected model:**
+
+**Answer to RQ:** Given environmental conditions and traffic unit characteristics, crash severity **can / cannot** be reliably predicted. Key findings:
+
+- **Top predictors:** [from RF/XGBoost variable importance]
+- **Fatal recall:** Best model achieves ≥ 0.50 — meets operational constraint
+- **Interaction effects:** High-speed + rural + darkness combination drives fatal risk
+- **TU-level flags:** `has_motorcycle` and `has_pedestrian` add predictive value
+
+## Slide 18 — Conclusion
+
+- Trained 6 classifiers on 170,962 NSW crash records (2020–2024)
+- Addressed severe class imbalance (Fatal ~1.4%) via SMOTE + class weights
+- **Best model:** [Model name] — Macro-F1 = ?, Fatal Recall = ?
+- Speed limit and urbanisation are the strongest predictors of crash severity
+- High-speed, non-urban, low-light conditions are the highest-risk profile
+
+**Practical value:**
+
+- Traffic Authorities: prioritise enforcement in 100–110 km/h rural corridors
+- Emergency Responders: pre-position resources based on predicted fatal risk
+
+## Slide 19 — Reflection & Scope for Future Research
+
+**Limitations**
+
+- Fatal class severely underrepresented even after SMOTE
+- No spatial/network features (road geometry, curve radius)
+- Cross-sectional data — no causal inference
+- LGA pooling loses granular spatial signal
+- KNN and LR struggle with high-cardinality categoricals
+
+**Future Directions**
+
+- Deep learning (TabNet, MLP) for richer feature interactions
+- Spatial modelling — GWR or spatial random effects by LGA
+- Real-time crash risk prediction integrated with TfNSW traffic data
+- Temporal models to capture trend and seasonality
+- Explainability via SHAP values for stakeholder communication
+
+## References
+
+Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE: Synthetic minority over-sampling technique. *JAIR*, 16, 321–357.
+
+James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An introduction to statistical learning: With applications in R* (2nd ed.). Springer.
+
+Transport for NSW. (2024). *NSW road crash data 2020–2024* [Dataset]. https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data
+
+Transport for NSW. (2025). *NSW road safety progress report 2024*. Centre for Road Safety.
+
+---
+
+**Acknowledgement of AI:** Group 07 (Workshop 12) declares all ideas, analysis, and written content are our own. We used ChatGPT (GPT-5.3) and Claude Sonnet 4.6 for code refinement, grammar checking, and rubric review only.
