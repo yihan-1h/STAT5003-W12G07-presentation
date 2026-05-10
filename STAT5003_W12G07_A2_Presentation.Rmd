@@ -1,7 +1,7 @@
 ---
 title: "NSW Road Crash Severity Prediction"
 subtitle: "STAT5003 — Group 07, Workshop 12"
-author: "Group 07, Workshop 12."
+author: "Group 07, Workshop 12"
 date: "May 2026"
 output:
   ioslides_presentation:
@@ -19,194 +19,228 @@ library(readr)
 library(forcats)
 library(scales)
 library(knitr)
-library(caret)
-library(rpart.plot)
-library(randomForest)
-library(pROC)
+library(kableExtra)
+library(tidyr)
 ```
 
-## Slide 1 — Research Question
+```{r load-data, include=FALSE}
+df_raw <- read_csv("nsw_road_crash_merged_2020_2024.csv", show_col_types = FALSE)
 
-**Can we predict NSW road crash severity given environmental and vehicle conditions?**
-
-- **Target:** Degree of crash — *Fatal / Injury / Non-casualty* (3-class)
-- **Predictors:** Weather, lighting, road surface, speed limit, TU type, manoeuvre
-- **Data:** 170,962 crash records, 2020–2024 (Transport for NSW)
-
-**Why it matters:**
-
-- NSW: 340 road fatalities in 2024, >⅔ in regional areas
-- Traffic Authorities → targeted interventions
-- Emergency Responders → evidence-based resource allocation
-- Policymakers & Insurers → precise policy and pricing
-
-## Slide 2 — Dataset Overview
-
-```{r dataset-overview}
-
+df_raw <- df_raw %>%
+  rename(severity = `Degree of crash`) %>%
+  mutate(severity = factor(severity,
+    levels = c("Fatal", "Injury", "Non-casualty (towaway)"),
+    labels = c("Fatal", "Injury", "Non-casualty")))
 ```
 
-## Slide 3 — Class Imbalance
+## Problem Framing & Research Question
 
-```{r class-imbalance, fig.height=3.5}
+<small style="color:#2E74B5">**Rubric criterion:** Problem Framing & Research Question &nbsp;|&nbsp; 2 pts</small>
 
+```{r slide-rq}
+# TODO: [member name] — RQ statement, motivation, stakeholder value
 ```
 
-*Fatal class (~1.4%) requires imbalance-aware modelling — accuracy alone is misleading.*
+## EDA & Data Understanding: Dataset Overview
 
-## Slide 4 — Key EDA: Speed vs Severity
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
 
-```{r eda-speed, fig.height=3.5}
-
+```{r slide-dataset}
+# TODO: [member name] — dataset summary table (source, records, variables, target, date range)
 ```
 
-*100–110 km/h zones show the highest Fatal proportions — strongest single predictor.*
+## EDA & Data Understanding: Class Imbalance
 
-## Slide 5 — Key EDA: High-Risk Scenarios
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
 
-```{r eda-highrisk}
-
+```{r slide-imbalance, fig.height=3.5}
+# TODO: [member name] — bar chart of Fatal / Injury / Non-casualty proportions
 ```
 
-*High-speed + darkness + non-urban = highest fatal risk. Justifies interaction-based tree models.*
+## EDA & Data Understanding: Speed vs Severity
 
-## Slide 6 — Key EDA: Temporal Patterns
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
 
-```{r eda-temporal, fig.height=3.5}
-
+```{r slide-speed, fig.height=3.5}
+# TODO: [member name] — stacked bar chart of severity proportion by speed limit band
 ```
 
-*Peaks during commute hours. Severity proportions stable across years — imbalance is structural.*
+## EDA & Data Understanding: High-Risk Scenarios
 
-## Slide 7 — Preprocessing Pipeline
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
 
-**Steps 1–5**
-
-1. **Integration** — TU flags per crash (`has_motorcycle`, `has_heavy_vehicle`)
-2. **Feature removal** — leakage cols, identifiers, >75% NA
-3. **Imputation** — drop >50% NA; categorical → "Unknown"; numeric → median
-4. **Engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands
-5. **Outliers** — NSW geo bounds; winsorise Distance at 99th percentile
-
-**Steps 6–9**
-
-6. **Encoding** — trees: R `factor`; KNN/LR: one-hot; rare LGA → "Other"
-7. **Scaling** — Z-score within fold for KNN; trees scale-invariant
-8. **SMOTE** — applied inside training fold only (Fatal minority)
-9. **Split** — 80/20 stratified; nested 5-fold CV (inner: tune, outer: estimate)
-
-## Slide 8 — Feature Engineering
-
-```{r feature-eng-table}
-
+```{r slide-highrisk, fig.height=3.5}
+# TODO: [member name] — fatal rate by speed band and lighting condition
 ```
 
-## Slide 9 — Handling Class Imbalance (SMOTE)
+## EDA & Data Understanding: Temporal Patterns
 
-```{r smote-plot, fig.height=3.2}
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
 
+```{r slide-temporal, fig.height=3.5}
+# TODO: [member name] — crash frequency heatmap by day of week and time interval
 ```
 
-*SMOTE applied **inside** training fold only to prevent leakage. Fatal class upsampled to ~10%.*
+## Data Preprocessing: Pipeline
 
-## Slide 10 — Model Overview
+<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing &nbsp;|&nbsp; 2 pts</small>
+
+**Steps 1–5: Cleaning & Feature Engineering**
+
+1. **TU Integration** — aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
+2. **Feature removal** — dropped leakage columns (post-crash injury counts), identifiers, and variables with >75% missing values; dropped `Degree of crash - detailed` (redundant with target)
+3. **Imputation** — removed rows >50% missing; categorical → `"Unknown"`; numeric → median
+4. **Feature engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands — all motivated by EDA findings
+5. **Outlier handling** — NSW geographic bounds filter; winsorise `Distance` at 99th percentile
+
+**Steps 6–9: Modelling Setup**
+
+6. **Encoding** — trees use native R `factor`; KNN/LR use one-hot; rare LGA levels → `"Other"`
+7. **Scaling** — Z-score standardisation within fold for KNN; trees are scale-invariant
+8. **Class imbalance** — inverse-frequency class weights (all models); SMOTE applied **inside training fold only**
+9. **Split** — 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV
+
+## Data Preprocessing: Feature Engineering & Class Balancing
+
+<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing &nbsp;|&nbsp; 2 pts</small>
+
+**Engineered features — all motivated by EDA**
+
+| Feature | Derivation | EDA motivation |
+|---|---|---|
+| `speed_band` | Cut `Speed limit` into ≤50 / 60–80 / 90–100 / 110 | Fatal rate rises sharply above 100 km/h |
+| `is_night` | `Natural lighting` ∈ {Darkness, Dawn, Dusk} | Dark conditions double fatal risk |
+| `is_rush_hour` | `Two-hour intervals` ∈ {7–9, 16–18} | Commute peaks dominate crash volume |
+| `is_weekend` | `Day of week of crash` ∈ Saturday, Sunday | Weekend crashes differ in severity profile |
+| `is_wet` | `Surface condition` contains "Wet" | Wet roads linked to skidding fatalities |
+| `has_motorcycle` | TU-level aggregated flag | Motorcyclists over-represented in fatals |
+| `has_pedestrian` | TU-level aggregated flag | Pedestrian crashes nearly always severe |
+
+**Handling class imbalance**
+
+- Raw Fatal share ~1.4% → accuracy-maximising models ignore Fatal entirely
+- Strategy: **inverse-frequency class weights** (all models) + **SMOTE** inside training fold (LR, KNN)
+- SMOTE raises synthetic Fatal share to ~10% in training only — test set remains unmodified
+
+## Model Fitting: Approach & Setup
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r model-overview}
-
+model_tbl <- tibble::tibble(
+  Model              = c("Multinomial Logistic Regression", "Decision Tree",
+                         "Random Forest", "XGBoost",
+                         "K-Nearest Neighbours", "Naive Bayes"),
+  `R package`        = c("nnet", "rpart", "randomForest", "xgboost", "kknn", "e1071"),
+  `Why chosen`       = c(
+    "Interpretable baseline; log-odds show predictor direction",
+    "Fully interpretable decision rules; native categorical handling",
+    "Ensemble; robust to noise; provides variable importance",
+    "Gradient boosting; typically strongest on tabular data",
+    "Non-parametric; captures local structure without assumptions",
+    "Probabilistic baseline; reveals feature independence violations"
+  ),
+  `Imbalance strategy` = c("Class weights + SMOTE", "Class weights",
+                            "Class weights", "scale_pos_weight",
+                            "Class weights + SMOTE", "Class prior")
+)
+kable(model_tbl, booktabs = TRUE) %>%
+  kable_styling(full_width = TRUE, font_size = 14) %>%
+  column_spec(1, bold = TRUE, width = "6em") %>%
+  column_spec(3, width = "18em") %>%
+  row_spec(0, bold = TRUE, background = "#2E74B5", color = "white")
 ```
 
 *All models trained via `caret` with 5-fold CV. Primary metric: **Macro-F1**. Hard constraint: **Fatal Recall ≥ 0.50**.*
 
-## Slide 11 — Logistic Regression Results
+## Model Fitting: Logistic Regression
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r results-lr, fig.height=3.5}
-
+# TODO: [member name] — confusion matrix heatmap + coefficient plot or ROC curves
+# Train on: df_train | CV: cv_ctrl_smote | Evaluate on: df_test
 ```
 
-## Slide 12 — Decision Tree Results
+## Model Fitting: Decision Tree
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r results-dt, fig.height=3.5}
-
+# TODO: [member name] — rpart.plot tree diagram + confusion matrix heatmap
+# Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
 ```
 
-## Slide 13 — Random Forest Results
+## Model Fitting: Random Forest
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r results-rf, fig.height=3.5}
-
+# TODO: [member name] — variable importance plot (top 15) + confusion matrix heatmap
+# Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
 ```
 
-## Slide 14 — XGBoost Results
+## Model Fitting: XGBoost
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r results-xgb, fig.height=3.5}
-
+# TODO: [member name] — variable importance (by Gain) + training loss curve + confusion matrix
+# Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
 ```
 
-## Slide 15 — KNN & Naive Bayes Results
+## Model Fitting: KNN & Naive Bayes
+
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
 
 ```{r results-knn-nb, fig.height=3.5}
-
+# TODO: [member name] — k vs Macro-F1 curve (KNN) + side-by-side confusion matrices
+# KNN: cv_ctrl_smote | NB: cv_ctrl_smote | Evaluate both on: df_test
 ```
 
-## Slide 16 — Model Comparison
+## Model Improvement: Hyperparameter Tuning
 
-```{r model-comparison}
+<small style="color:#2E74B5">**Rubric criterion:** Model Improvement &nbsp;|&nbsp; 2 pts</small>
 
+```{r slide-improvement}
+# TODO: [member name] — tuning table (model, parameter, range, best value) + before/after metric comparison
 ```
 
-*Bold = best model. Models failing Fatal Recall ≥ 0.50 are deprioritised regardless of overall F1.*
+## Model Evaluation
 
-## Slide 17 — Best Model & Answer to RQ
+<small style="color:#2E74B5">**Rubric criterion:** Model Evaluation &nbsp;|&nbsp; 2 pts</small>
 
-**Selected model:**
+```{r slide-evaluation}
+# TODO: [member name] — comparison table (6 models x Macro-F1, Fatal Recall, Weighted F1, Kappa)
+```
 
-**Answer to RQ:** Given environmental conditions and traffic unit characteristics, crash severity **can / cannot** be reliably predicted. Key findings:
+## Model Selection
 
-- **Top predictors:** [from RF/XGBoost variable importance]
-- **Fatal recall:** Best model achieves ≥ 0.50 — meets operational constraint
-- **Interaction effects:** High-speed + rural + darkness combination drives fatal risk
-- **TU-level flags:** `has_motorcycle` and `has_pedestrian` add predictive value
+<small style="color:#2E74B5">**Rubric criterion:** Model Selection &nbsp;|&nbsp; 2 pts</small>
 
-## Slide 18 — Conclusion
+```{r slide-selection}
+# TODO: [member name] — best model name, justification, top predictors from variable importance
+```
 
-- Trained 6 classifiers on 170,962 NSW crash records (2020–2024)
-- Addressed severe class imbalance (Fatal ~1.4%) via SMOTE + class weights
-- **Best model:** [Model name] — Macro-F1 = ?, Fatal Recall = ?
-- Speed limit and urbanisation are the strongest predictors of crash severity
-- High-speed, non-urban, low-light conditions are the highest-risk profile
+## Final Results & Conclusion
 
-**Practical value:**
+<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion &nbsp;|&nbsp; 2 pts</small>
 
-- Traffic Authorities: prioritise enforcement in 100–110 km/h rural corridors
-- Emergency Responders: pre-position resources based on predicted fatal risk
+```{r slide-conclusion}
+# TODO: [member name] — answer to RQ, key findings, practical implications for stakeholders
+```
 
-## Slide 19 — Reflection & Scope for Future Research
+## Reflection & Future Directions
 
-**Limitations**
+<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion &nbsp;|&nbsp; 2 pts (continued)</small>
 
-- Fatal class severely underrepresented even after SMOTE
-- No spatial/network features (road geometry, curve radius)
-- Cross-sectional data — no causal inference
-- LGA pooling loses granular spatial signal
-- KNN and LR struggle with high-cardinality categoricals
-
-**Future Directions**
-
-- Deep learning (TabNet, MLP) for richer feature interactions
-- Spatial modelling — GWR or spatial random effects by LGA
-- Real-time crash risk prediction integrated with TfNSW traffic data
-- Temporal models to capture trend and seasonality
-- Explainability via SHAP values for stakeholder communication
+```{r slide-reflection}
+# TODO: [member name] — limitations, future research directions
+```
 
 ## References
 
-Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE: Synthetic minority over-sampling technique. *JAIR*, 16, 321–357.
-
-James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An introduction to statistical learning: With applications in R* (2nd ed.). Springer.
-
-Transport for NSW. (2024). *NSW road crash data 2020–2024* [Dataset]. https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data
-
-Transport for NSW. (2025). *NSW road safety progress report 2024*. Centre for Road Safety.
-
----
-
-**Acknowledgement of AI:** Group 07 (Workshop 12) declares all ideas, analysis, and written content are our own. We used ChatGPT (GPT-5.3) and Claude Sonnet 4.6 for code refinement, grammar checking, and rubric review only.
+```{r slide-references}
+# TODO: [member name] — APA 7th references for all sources cited across slides
+# AI acknowledgement to be added as a <small> footnote at the bottom
+```

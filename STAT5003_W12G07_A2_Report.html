@@ -472,23 +472,30 @@ h4.date { display: none; }
 <pre class="r"><code>df &lt;- read.csv(&quot;nsw_road_crash_merged_2020_2024.csv&quot;, check.names = FALSE)
 cat(&quot;Dimensions:&quot;, nrow(df), &quot;rows x&quot;, ncol(df), &quot;cols\n&quot;)
 str(df)</code></pre>
-<div id="research-question-recap" class="section level3">
-<h3>1 Research Question (Recap)</h3>
-<p>Given environmental conditions (weather, lighting, road surface,
-speed limit) and traffic unit characteristics (TU type, manoeuvre,
-number of units), can we predict NSW road crash severity (Fatal / Injury
-/ Non-casualty): a three-class classification problem?</p>
+<hr />
+<div id="problem-framing-research-question" class="section level3">
+<h3>1 Problem Framing &amp; Research Question</h3>
+<!-- TODO: [member name] — RQ statement, motivation, 3 stakeholder groups (~0.5 page) -->
 <hr />
 </div>
-<div id="preprocessing" class="section level3">
-<h3>2 Preprocessing</h3>
+<div id="dataset-justification" class="section level3">
+<h3>2 Dataset &amp; Justification</h3>
+<!-- TODO: [member name] — data source, merge process, 4-requirement justification table (~0.5 page) -->
+<hr />
+</div>
+<div id="eda-insights" class="section level3">
+<h3>3 EDA &amp; Insights</h3>
+<!-- TODO: [member name] — 4 ggplot2 plots with key finding commentary per plot (~1 page) -->
+<hr />
+</div>
+<div id="data-preprocessing" class="section level3">
+<h3>4 Data Preprocessing</h3>
 <p>All data-dependent steps are performed <strong>within
 cross-validation folds</strong> to prevent data leakage (James et al.,
 2021).</p>
-<div id="step-1-data-integration-tu-level-feature-aggregation" class="section level4">
-<h4>2.1 Step 1 — Data Integration &amp; TU-Level Feature
-Aggregation</h4>
-<pre class="r"><code>#Each row is one traffic unit — summarise binary flags per crash, then join back
+<div id="step-1-data-integration-tu-level-feature-aggregation" class="section level5">
+<h5>Step 1 — Data Integration &amp; TU-Level Feature Aggregation</h5>
+<pre class="r"><code># Each row is one traffic unit — summarise binary flags per crash, then join back
 tu_flags &lt;- df %&gt;%
   group_by(`Crash ID`) %&gt;%
   summarise(
@@ -501,18 +508,15 @@ tu_flags &lt;- df %&gt;%
   )
 
 df &lt;- df %&gt;% left_join(tu_flags, by = &quot;Crash ID&quot;)
-
 cat(&quot;TU flags added. Rows:&quot;, nrow(df), &quot;| New cols:&quot;, ncol(df), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-2-feature-removal-leakage-identifiers-sparse-columns" class="section level4">
-<h4>2.2 Step 2 — Feature Removal (Leakage, Identifiers, Sparse
-Columns)</h4>
-<pre class="r"><code>#Leakage: post-crash outcome counts that directly encode the target
+<div id="step-2-feature-removal" class="section level5">
+<h5>Step 2 — Feature Removal</h5>
+<pre class="r"><code># Leakage: post-crash outcome counts that directly encode the target
 leakage_cols &lt;- c(&quot;No. killed&quot;, &quot;No. seriously injured&quot;,
                   &quot;No. moderately injured&quot;, &quot;No. minor-other injured&quot;)
 
 # Redundant: detailed severity is a finer version of the target column
-# &quot;Degree of crash&quot; is already the aggregated 3-class target we are predicting
 redundant_target_cols &lt;- c(&quot;Degree of crash - detailed&quot;)
 
 # Identifiers and free-text location fields (no predictive signal)
@@ -521,42 +525,30 @@ id_cols &lt;- c(&quot;Crash ID&quot;, &quot;Traffic unit ID&quot;, &quot;Street 
              &quot;Identifying feature type&quot;, &quot;Conurbation 1&quot;)
 
 # High-NA columns (&gt;75% missing — confirmed from inspection)
-# Primary hazardous feature 98.7%, Primary temporary feature 98.5%,
-# Object hit 2 97.1%, DCA supplement 91.6%, Object hit 1 85.2%,
-# Primary permanent feature 75.1%
 high_na_cols &lt;- c(&quot;Primary hazardous feature&quot;, &quot;Primary temporary feature&quot;,
                   &quot;Object hit 2&quot;, &quot;DCA supplement&quot;, &quot;Object hit 1&quot;,
                   &quot;Primary permanent feature&quot;)
 
-# Route no. (36.3% NA, redundant with location fields)
 redundant_cols &lt;- c(&quot;Route no.&quot;, &quot;RUM - code&quot;, &quot;RUM - description&quot;,
                     &quot;DCA - code&quot;, &quot;DCA - description&quot;)
 
 drop_cols &lt;- unique(c(leakage_cols, redundant_target_cols, id_cols, high_na_cols, redundant_cols))
 df_clean  &lt;- df %&gt;% select(-any_of(drop_cols))
-
 cat(&quot;Columns after removal:&quot;, ncol(df_clean), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-3-missing-value-imputation" class="section level4">
-<h4>2.3 Step 3 — Missing Value Imputation</h4>
-<pre class="r"><code>#Only 3 NAs in Identifying feature (already dropped)
-# Other TU type: 17.1% NA — treat as &quot;Unknown&quot; (not present)
-# Remaining categoricals: fill &quot;Unknown&quot; for any residual NAs
-
-df_clean &lt;- df_clean %&gt;%
+<div id="step-3-missing-value-imputation" class="section level5">
+<h5>Step 3 — Missing Value Imputation</h5>
+<pre class="r"><code>df_clean &lt;- df_clean %&gt;%
   mutate(
     `Other TU type` = ifelse(is.na(`Other TU type`), &quot;Unknown&quot;, `Other TU type`),
     across(where(is.character), ~ replace_na(., &quot;Unknown&quot;)),
     across(where(is.numeric),   ~ replace_na(., median(., na.rm = TRUE)))
   )
-
 cat(&quot;Missing values after imputation:&quot;, sum(is.na(df_clean)), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-4-feature-engineering" class="section level4">
-<h4>2.4 Step 4 — Feature Engineering</h4>
-<pre class="r"><code>#Two-hour intervals are stored as strings e.g. &quot;8:00 AM - 9:59 AM&quot;
-# Extract start hour for time-based features
-df_clean &lt;- df_clean %&gt;%
+<div id="step-4-feature-engineering" class="section level5">
+<h5>Step 4 — Feature Engineering</h5>
+<pre class="r"><code>df_clean &lt;- df_clean %&gt;%
   mutate(
     crash_hour   = as.integer(sub(&quot;:.*&quot;, &quot;&quot;, `Two-hour intervals`)),
     is_weekend   = as.integer(`Day of week of crash` %in% c(&quot;Saturday&quot;, &quot;Sunday&quot;)),
@@ -571,34 +563,24 @@ df_clean &lt;- df_clean %&gt;%
       TRUE                                                                     ~ &quot;unknown&quot;
     )
   )
-
 cat(&quot;Engineered features added. Columns:&quot;, ncol(df_clean), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-5-outlier-detection" class="section level4">
-<h4>2.5 Step 5 — Outlier Detection</h4>
-<pre class="r"><code>#Distance: winsorise at 99th percentile
-p99_dist &lt;- quantile(df_clean$Distance, 0.99, na.rm = TRUE)
+<div id="step-5-outlier-detection" class="section level5">
+<h5>Step 5 — Outlier Detection</h5>
+<pre class="r"><code>p99_dist &lt;- quantile(df_clean$Distance, 0.99, na.rm = TRUE)
 df_clean &lt;- df_clean %&gt;%
-  mutate(Distance = pmin(Distance, p99_dist))
-
-# Latitude/Longitude: drop records outside NSW bounds
-# NSW approx: lat -28.2 to -37.5, lon 141.0 to 153.6
-df_clean &lt;- df_clean %&gt;%
+  mutate(Distance = pmin(Distance, p99_dist)) %&gt;%
   filter(is.na(Latitude)  | (Latitude  &gt;= -37.5 &amp; Latitude  &lt;= -28.2),
          is.na(Longitude) | (Longitude &gt;= 141.0  &amp; Longitude &lt;= 153.6))
-
 cat(&quot;Rows after outlier removal:&quot;, nrow(df_clean), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-6-encoding-lga-pooling" class="section level4">
-<h4>2.6 Step 6 — Encoding &amp; LGA Pooling</h4>
-<pre class="r"><code>#Pool rare LGA values (&lt;1% of records) into &quot;Other&quot;
-lga_freq  &lt;- prop.table(table(df_clean$LGA))
+<div id="step-6-encoding-lga-pooling" class="section level5">
+<h5>Step 6 — Encoding &amp; LGA Pooling</h5>
+<pre class="r"><code>lga_freq  &lt;- prop.table(table(df_clean$LGA))
 rare_lgas &lt;- names(lga_freq[lga_freq &lt; 0.01])
 df_clean  &lt;- df_clean %&gt;%
   mutate(LGA = ifelse(LGA %in% rare_lgas, &quot;Other&quot;, LGA))
 
-# Convert all character columns to factors (required by caret/rpart/randomForest)
-# Target: ordered factor with Fatal first for metric calculations
 df_model &lt;- df_clean %&gt;%
   mutate(across(where(is.character), as.factor)) %&gt;%
   mutate(`Degree of crash` = factor(`Degree of crash`,
@@ -608,142 +590,110 @@ cat(&quot;Class distribution:\n&quot;)
 print(prop.table(table(df_model$`Degree of crash`)))
 cat(&quot;LGA levels after pooling:&quot;, nlevels(df_model$LGA), &quot;\n&quot;)</code></pre>
 </div>
-<div id="step-7-traintest-split-8020-stratified" class="section level4">
-<h4>2.7 Step 7 — Train/Test Split (80/20 Stratified)</h4>
-<pre class="r"><code># Temporal holdout: 2024 data sealed off before any train/test split
-# Only used once at the very end to check temporal generalisation
-df_holdout_2024 &lt;- df_model %&gt;% filter(`Reporting year` == 2024)
+<div id="step-7-traintest-split-temporal-holdout" class="section level5">
+<h5>Step 7 — Train/Test Split &amp; Temporal Holdout</h5>
+<pre class="r"><code># 2024 sealed as temporal holdout — evaluated once at the very end only
+df_holdout_2024  &lt;- df_model %&gt;% filter(`Reporting year` == 2024)
 df_model_2020_23 &lt;- df_model %&gt;% filter(`Reporting year` != 2024)
 
-cat(&quot;Holdout (2024):&quot;, nrow(df_holdout_2024), &quot;rows\n&quot;)
-cat(&quot;Modelling set (2020-2023):&quot;, nrow(df_model_2020_23), &quot;rows\n&quot;)
-
-# 80/20 stratified split on 2020-2023 data only
 set.seed(42)
 train_idx &lt;- createDataPartition(df_model_2020_23$`Degree of crash`, p = 0.8, list = FALSE)
 df_train  &lt;- df_model_2020_23[ train_idx, ]
 df_test   &lt;- df_model_2020_23[-train_idx, ]
 
-cat(&quot;Train:&quot;, nrow(df_train), &quot;| Test:&quot;, nrow(df_test), &quot;\n&quot;)
-cat(&quot;Train class distribution:\n&quot;)
+cat(&quot;Train:&quot;, nrow(df_train), &quot;| Test:&quot;, nrow(df_test), &quot;| Holdout:&quot;, nrow(df_holdout_2024), &quot;\n&quot;)
 print(prop.table(table(df_train$`Degree of crash`)))</code></pre>
 </div>
-<div id="step-8-class-imbalance-smote" class="section level4">
-<h4>2.8 Step 8 — Class Imbalance: SMOTE</h4>
-<pre class="r"><code>#Class weights for models that accept them (LR, DT, RF)
-# Inverse frequency weighting so Fatal gets highest weight
+<div id="step-8-class-imbalance-handling" class="section level5">
+<h5>Step 8 — Class Imbalance Handling</h5>
+<pre class="r"><code># Inverse frequency weights for models supporting class weights (LR, DT, RF)
 class_weights &lt;- 1 / prop.table(table(df_train$`Degree of crash`))
 class_weights &lt;- class_weights / sum(class_weights)
 cat(&quot;Class weights:\n&quot;); print(round(class_weights, 4))
-
-# SMOTE is applied inside caret&#39;s trainControl via the sampling argument
-# where supported (see CV setup below) — not applied globally here
-# to avoid leakage between folds</code></pre>
+# SMOTE applied inside CV fold for KNN and Naive Bayes via cv_ctrl_smote</code></pre>
 </div>
-<div id="step-9-cv-setup-nested-5-fold" class="section level4">
-<h4>2.9 Step 9 — CV Setup (Nested 5-Fold)</h4>
-<pre class="r"><code>#Standard 5-fold CV control — used by all models
-cv_ctrl &lt;- trainControl(
-  method          = &quot;cv&quot;,
-  number          = 5,
-  classProbs      = TRUE,
-  summaryFunction = multiClassSummary,
-  savePredictions = &quot;final&quot;
+<div id="step-9-cross-validation-setup" class="section level5">
+<h5>Step 9 — Cross-Validation Setup</h5>
+<pre class="r"><code>cv_ctrl &lt;- trainControl(
+  method = &quot;cv&quot;, number = 5, classProbs = TRUE,
+  summaryFunction = multiClassSummary, savePredictions = &quot;final&quot;
 )
-
-# CV control with SMOTE — used for models where class weights are not available
 cv_ctrl_smote &lt;- trainControl(
-  method          = &quot;cv&quot;,
-  number          = 5,
-  classProbs      = TRUE,
-  summaryFunction = multiClassSummary,
-  savePredictions = &quot;final&quot;,
-  sampling        = &quot;smote&quot;
+  method = &quot;cv&quot;, number = 5, classProbs = TRUE,
+  summaryFunction = multiClassSummary, savePredictions = &quot;final&quot;,
+  sampling = &quot;smote&quot;
 )
-
 cat(&quot;CV controls ready.\n&quot;)</code></pre>
 <hr />
 </div>
 </div>
-<div id="models" class="section level3">
-<h3>3 Models</h3>
+<div id="model-fitting" class="section level3">
+<h3>5 Model Fitting</h3>
+<p>Six models selected to cover a range of complexity and
+interpretability. All implemented in R via <code>caret</code> with
+5-fold CV. Primary metric: <strong>Macro-F1</strong>. Hard constraint:
+<strong>Fatal Recall ≥ 0.50</strong>.</p>
 <div id="multinomial-logistic-regression" class="section level4">
-<h4>3.1 Multinomial Logistic Regression</h4>
+<h4>5.1 Multinomial Logistic Regression</h4>
 <pre class="r"><code># Encoding &amp; scaling: add preProcess = &quot;nzv&quot; in train()
 # method = &quot;multinom&quot; handles factors via dummy variables internally
-# Train on: df_train | CV control: cv_ctrl | Weights: class_weights
+# Train on: df_train | CV control: cv_ctrl_smote | Weights: class_weights
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 </div>
 <div id="decision-tree" class="section level4">
-<h4>3.2 Decision Tree</h4>
+<h4>5.2 Decision Tree</h4>
 <pre class="r"><code># Encoding &amp; scaling: none required — rpart handles R factors natively
 # Train on: df_train | CV control: cv_ctrl | Weights: class_weights
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 </div>
 <div id="random-forest" class="section level4">
-<h4>3.3 Random Forest</h4>
+<h4>5.3 Random Forest</h4>
 <pre class="r"><code># Encoding &amp; scaling: none required — randomForest handles R factors natively
 # Train on: df_train | CV control: cv_ctrl | Weights: classwt = class_weights
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 </div>
 <div id="xgboost" class="section level4">
-<h4>3.4 XGBoost</h4>
+<h4>5.4 XGBoost</h4>
 <pre class="r"><code># Encoding: requires numeric matrix — use model.matrix(~ . - 1, data = df_train) to one-hot encode
 # Train on: df_train | CV control: cv_ctrl | Weights: scale_pos_weight
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 </div>
-<div id="knn" class="section level4">
-<h4>3.5 KNN</h4>
+<div id="k-nearest-neighbours" class="section level4">
+<h4>5.5 K-Nearest Neighbours</h4>
 <pre class="r"><code># Encoding &amp; scaling: add preProcess = c(&quot;center&quot;, &quot;scale&quot;) in train()
-# This z-scores numerics and dummy-encodes factors automatically
 # Train on: df_train | CV control: cv_ctrl_smote | Weights: via SMOTE
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 </div>
 <div id="naive-bayes" class="section level4">
-<h4>3.6 Naive Bayes</h4>
+<h4>5.6 Naive Bayes</h4>
 <pre class="r"><code># Encoding &amp; scaling: none required — naive_bayes handles factors directly
 # Train on: df_train | CV control: cv_ctrl_smote | Weights: via SMOTE
 # Evaluate on: df_test | Temporal check: df_holdout_2024</code></pre>
 <hr />
 </div>
 </div>
-<div id="evaluation-results" class="section level3">
-<h3>4 Evaluation &amp; Results</h3>
-<div id="per-model-confusion-matrices" class="section level4">
-<h4>4.1 Per-Model Confusion Matrices</h4>
-</div>
-<div id="metric-comparison-table" class="section level4">
-<h4>4.2 Metric Comparison Table</h4>
-</div>
-<div id="variable-importance-random-forest-xgboost" class="section level4">
-<h4>4.3 Variable Importance (Random Forest &amp; XGBoost)</h4>
+<div id="model-improvement" class="section level3">
+<h3>6 Model Improvement</h3>
+<!-- TODO: [member name] — per-model tuning (§6.1–§6.6): tuning grid, CV curve, best params, before/after comparison -->
 <hr />
 </div>
+<div id="model-evaluation-selection" class="section level3">
+<h3>7 Model Evaluation &amp; Selection</h3>
+<!-- TODO: [member name] — comparison table (6 models × 4 metrics), best model selection + justification -->
+<hr />
 </div>
-<div id="conclusion" class="section level3">
-<h3>5 Conclusion</h3>
+<div id="final-results-conclusion" class="section level3">
+<h3>8 Final Results &amp; Conclusion</h3>
+<!-- TODO: [member name] — answer RQ, top predictors, practical implications, process reflection -->
 <hr />
 </div>
 <div id="references" class="section level3">
 <h3>References</h3>
-<p>Chawla, N. V., Bowyer, K. W., Hall, L. O., &amp; Kegelmeyer, W. P.
-(2002). SMOTE: Synthetic minority over-sampling technique. <em>Journal
-of Artificial Intelligence Research</em>, <em>16</em>, 321–357. <a href="https://doi.org/10.1613/jair.953" class="uri">https://doi.org/10.1613/jair.953</a></p>
-<p>James, G., Witten, D., Hastie, T., &amp; Tibshirani, R. (2021).
-<em>An introduction to statistical learning: With applications in R</em>
-(2nd ed.). Springer. <a href="https://doi.org/10.1007/978-1-0716-1418-1" class="uri">https://doi.org/10.1007/978-1-0716-1418-1</a></p>
-<p>Transport for NSW. (2024). <em>NSW road crash data 2020–2024</em>
-[Dataset]. Australian Government Open Data Platform. <a href="https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data" class="uri">https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data</a></p>
-<p>Transport for NSW. (2025). <em>NSW road safety progress report
-2024</em>. Centre for Road Safety. <a href="https://www.transport.nsw.gov.au/system/files/media/documents/2025/crs_road_safety_progress_report_2024.pdf" class="uri">https://www.transport.nsw.gov.au/system/files/media/documents/2025/crs_road_safety_progress_report_2024.pdf</a></p>
+<!-- TODO: [member name] — APA 7th format references for all sources cited -->
 </div>
 <div id="acknowledgement-of-ai" class="section level3">
 <h3>Acknowledgement of AI</h3>
-<p>Group 07 (Workshop 12) declares that all ideas, analysis, and written
-content presented in this report are our own. We did not use generative
-AI to write our code. We used ChatGPT (GPT-5.3, OpenAI, <a href="https://chatgpt.com" class="uri">https://chatgpt.com</a>) and
-Claude Sonnet 4.6 (Anthropic, <a href="https://claude.ai" class="uri">https://claude.ai</a>) for code refinement, grammar
-checking, and reviewing our report against the marking rubric.</p>
+<!-- TODO: [member name] — AI acknowledgement statement -->
 </div>
 
 

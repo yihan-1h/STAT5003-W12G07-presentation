@@ -44,20 +44,34 @@ cat("Dimensions:", nrow(df), "rows x", ncol(df), "cols\n")
 str(df)
 ```
 
-### 1 Research Question (Recap)
+---
 
-Given environmental conditions (weather, lighting, road surface, speed limit) and traffic unit characteristics (TU type, manoeuvre, number of units), can we predict NSW road crash severity (Fatal / Injury / Non-casualty): a three-class classification problem?
+### 1 Problem Framing & Research Question
+
+<!-- TODO: [member name] — RQ statement, motivation, 3 stakeholder groups (~0.5 page) -->
 
 ---
 
-### 2 Preprocessing
+### 2 Dataset & Justification
+
+<!-- TODO: [member name] — data source, merge process, 4-requirement justification table (~0.5 page) -->
+
+---
+
+### 3 EDA & Insights
+
+<!-- TODO: [member name] — 4 ggplot2 plots with key finding commentary per plot (~1 page) -->
+
+---
+
+### 4 Data Preprocessing
 
 All data-dependent steps are performed **within cross-validation folds** to prevent data leakage (James et al., 2021).
 
-#### 2.1 Step 1 — Data Integration & TU-Level Feature Aggregation
+##### Step 1 — Data Integration & TU-Level Feature Aggregation
 
 ```{r step1-integration, message=FALSE, warning=FALSE, results='hide'}
-#Each row is one traffic unit — summarise binary flags per crash, then join back
+# Each row is one traffic unit — summarise binary flags per crash, then join back
 tu_flags <- df %>%
   group_by(`Crash ID`) %>%
   summarise(
@@ -70,19 +84,17 @@ tu_flags <- df %>%
   )
 
 df <- df %>% left_join(tu_flags, by = "Crash ID")
-
 cat("TU flags added. Rows:", nrow(df), "| New cols:", ncol(df), "\n")
 ```
 
-#### 2.2 Step 2 — Feature Removal (Leakage, Identifiers, Sparse Columns)
+##### Step 2 — Feature Removal
 
 ```{r step2-removal, message=FALSE, warning=FALSE, results='hide'}
-#Leakage: post-crash outcome counts that directly encode the target
+# Leakage: post-crash outcome counts that directly encode the target
 leakage_cols <- c("No. killed", "No. seriously injured",
                   "No. moderately injured", "No. minor-other injured")
 
 # Redundant: detailed severity is a finer version of the target column
-# "Degree of crash" is already the aggregated 3-class target we are predicting
 redundant_target_cols <- c("Degree of crash - detailed")
 
 # Identifiers and free-text location fields (no predictive signal)
@@ -91,45 +103,33 @@ id_cols <- c("Crash ID", "Traffic unit ID", "Street of crash",
              "Identifying feature type", "Conurbation 1")
 
 # High-NA columns (>75% missing — confirmed from inspection)
-# Primary hazardous feature 98.7%, Primary temporary feature 98.5%,
-# Object hit 2 97.1%, DCA supplement 91.6%, Object hit 1 85.2%,
-# Primary permanent feature 75.1%
 high_na_cols <- c("Primary hazardous feature", "Primary temporary feature",
                   "Object hit 2", "DCA supplement", "Object hit 1",
                   "Primary permanent feature")
 
-# Route no. (36.3% NA, redundant with location fields)
 redundant_cols <- c("Route no.", "RUM - code", "RUM - description",
                     "DCA - code", "DCA - description")
 
 drop_cols <- unique(c(leakage_cols, redundant_target_cols, id_cols, high_na_cols, redundant_cols))
 df_clean  <- df %>% select(-any_of(drop_cols))
-
 cat("Columns after removal:", ncol(df_clean), "\n")
 ```
 
-#### 2.3 Step 3 — Missing Value Imputation
+##### Step 3 — Missing Value Imputation
 
 ```{r step3-imputation, message=FALSE, warning=FALSE, results='hide'}
-#Only 3 NAs in Identifying feature (already dropped)
-# Other TU type: 17.1% NA — treat as "Unknown" (not present)
-# Remaining categoricals: fill "Unknown" for any residual NAs
-
 df_clean <- df_clean %>%
   mutate(
     `Other TU type` = ifelse(is.na(`Other TU type`), "Unknown", `Other TU type`),
     across(where(is.character), ~ replace_na(., "Unknown")),
     across(where(is.numeric),   ~ replace_na(., median(., na.rm = TRUE)))
   )
-
 cat("Missing values after imputation:", sum(is.na(df_clean)), "\n")
 ```
 
-#### 2.4 Step 4 — Feature Engineering
+##### Step 4 — Feature Engineering
 
 ```{r step4-engineering, message=FALSE, warning=FALSE, results='hide'}
-#Two-hour intervals are stored as strings e.g. "8:00 AM - 9:59 AM"
-# Extract start hour for time-based features
 df_clean <- df_clean %>%
   mutate(
     crash_hour   = as.integer(sub(":.*", "", `Two-hour intervals`)),
@@ -145,38 +145,28 @@ df_clean <- df_clean %>%
       TRUE                                                                     ~ "unknown"
     )
   )
-
 cat("Engineered features added. Columns:", ncol(df_clean), "\n")
 ```
 
-#### 2.5 Step 5 — Outlier Detection
+##### Step 5 — Outlier Detection
 
 ```{r step5-outliers, message=FALSE, warning=FALSE, results='hide'}
-#Distance: winsorise at 99th percentile
 p99_dist <- quantile(df_clean$Distance, 0.99, na.rm = TRUE)
 df_clean <- df_clean %>%
-  mutate(Distance = pmin(Distance, p99_dist))
-
-# Latitude/Longitude: drop records outside NSW bounds
-# NSW approx: lat -28.2 to -37.5, lon 141.0 to 153.6
-df_clean <- df_clean %>%
+  mutate(Distance = pmin(Distance, p99_dist)) %>%
   filter(is.na(Latitude)  | (Latitude  >= -37.5 & Latitude  <= -28.2),
          is.na(Longitude) | (Longitude >= 141.0  & Longitude <= 153.6))
-
 cat("Rows after outlier removal:", nrow(df_clean), "\n")
 ```
 
-#### 2.6 Step 6 — Encoding & LGA Pooling
+##### Step 6 — Encoding & LGA Pooling
 
 ```{r step6-encoding, message=FALSE, warning=FALSE, results='hide'}
-#Pool rare LGA values (<1% of records) into "Other"
 lga_freq  <- prop.table(table(df_clean$LGA))
 rare_lgas <- names(lga_freq[lga_freq < 0.01])
 df_clean  <- df_clean %>%
   mutate(LGA = ifelse(LGA %in% rare_lgas, "Other", LGA))
 
-# Convert all character columns to factors (required by caret/rpart/randomForest)
-# Target: ordered factor with Fatal first for metric calculations
 df_model <- df_clean %>%
   mutate(across(where(is.character), as.factor)) %>%
   mutate(`Degree of crash` = factor(`Degree of crash`,
@@ -187,82 +177,64 @@ print(prop.table(table(df_model$`Degree of crash`)))
 cat("LGA levels after pooling:", nlevels(df_model$LGA), "\n")
 ```
 
-#### 2.7 Step 7 — Train/Test Split (80/20 Stratified)
+##### Step 7 — Train/Test Split & Temporal Holdout
 
 ```{r step7-split, message=FALSE, warning=FALSE, results='hide'}
-# Temporal holdout: 2024 data sealed off before any train/test split
-# Only used once at the very end to check temporal generalisation
-df_holdout_2024 <- df_model %>% filter(`Reporting year` == 2024)
+# 2024 sealed as temporal holdout — evaluated once at the very end only
+df_holdout_2024  <- df_model %>% filter(`Reporting year` == 2024)
 df_model_2020_23 <- df_model %>% filter(`Reporting year` != 2024)
 
-cat("Holdout (2024):", nrow(df_holdout_2024), "rows\n")
-cat("Modelling set (2020-2023):", nrow(df_model_2020_23), "rows\n")
-
-# 80/20 stratified split on 2020-2023 data only
 set.seed(42)
 train_idx <- createDataPartition(df_model_2020_23$`Degree of crash`, p = 0.8, list = FALSE)
 df_train  <- df_model_2020_23[ train_idx, ]
 df_test   <- df_model_2020_23[-train_idx, ]
 
-cat("Train:", nrow(df_train), "| Test:", nrow(df_test), "\n")
-cat("Train class distribution:\n")
+cat("Train:", nrow(df_train), "| Test:", nrow(df_test), "| Holdout:", nrow(df_holdout_2024), "\n")
 print(prop.table(table(df_train$`Degree of crash`)))
 ```
 
-#### 2.8 Step 8 — Class Imbalance: SMOTE
+##### Step 8 — Class Imbalance Handling
 
 ```{r step8-smote, message=FALSE, warning=FALSE, results='hide'}
-#Class weights for models that accept them (LR, DT, RF)
-# Inverse frequency weighting so Fatal gets highest weight
+# Inverse frequency weights for models supporting class weights (LR, DT, RF)
 class_weights <- 1 / prop.table(table(df_train$`Degree of crash`))
 class_weights <- class_weights / sum(class_weights)
 cat("Class weights:\n"); print(round(class_weights, 4))
-
-# SMOTE is applied inside caret's trainControl via the sampling argument
-# where supported (see CV setup below) — not applied globally here
-# to avoid leakage between folds
+# SMOTE applied inside CV fold for KNN and Naive Bayes via cv_ctrl_smote
 ```
 
-#### 2.9 Step 9 — CV Setup (Nested 5-Fold)
+##### Step 9 — Cross-Validation Setup
 
 ```{r step9-cv, message=FALSE, warning=FALSE, results='hide'}
-#Standard 5-fold CV control — used by all models
 cv_ctrl <- trainControl(
-  method          = "cv",
-  number          = 5,
-  classProbs      = TRUE,
-  summaryFunction = multiClassSummary,
-  savePredictions = "final"
+  method = "cv", number = 5, classProbs = TRUE,
+  summaryFunction = multiClassSummary, savePredictions = "final"
 )
-
-# CV control with SMOTE — used for models where class weights are not available
 cv_ctrl_smote <- trainControl(
-  method          = "cv",
-  number          = 5,
-  classProbs      = TRUE,
-  summaryFunction = multiClassSummary,
-  savePredictions = "final",
-  sampling        = "smote"
+  method = "cv", number = 5, classProbs = TRUE,
+  summaryFunction = multiClassSummary, savePredictions = "final",
+  sampling = "smote"
 )
-
 cat("CV controls ready.\n")
 ```
 
 ---
 
-### 3 Models
+### 5 Model Fitting
 
-#### 3.1 Multinomial Logistic Regression
+Six models selected to cover a range of complexity and interpretability. All implemented in R via `caret` with 5-fold CV. Primary metric: **Macro-F1**. Hard constraint: **Fatal Recall ≥ 0.50**.
+
+#### 5.1 Multinomial Logistic Regression
 
 ```{r model-lr, message=FALSE, warning=FALSE}
 # Encoding & scaling: add preProcess = "nzv" in train()
 # method = "multinom" handles factors via dummy variables internally
-# Train on: df_train | CV control: cv_ctrl | Weights: class_weights
+# Train on: df_train | CV control: cv_ctrl_smote | Weights: class_weights
 # Evaluate on: df_test | Temporal check: df_holdout_2024
 
 ```
 
-#### 3.2 Decision Tree
+#### 5.2 Decision Tree
 
 ```{r model-dt, message=FALSE, warning=FALSE}
 # Encoding & scaling: none required — rpart handles R factors natively
@@ -271,7 +243,7 @@ cat("CV controls ready.\n")
 
 ```
 
-#### 3.3 Random Forest
+#### 5.3 Random Forest
 
 ```{r model-rf, message=FALSE, warning=FALSE}
 # Encoding & scaling: none required — randomForest handles R factors natively
@@ -280,7 +252,7 @@ cat("CV controls ready.\n")
 
 ```
 
-#### 3.4 XGBoost
+#### 5.4 XGBoost
 
 ```{r model-xgb, message=FALSE, warning=FALSE}
 # Encoding: requires numeric matrix — use model.matrix(~ . - 1, data = df_train) to one-hot encode
@@ -289,17 +261,16 @@ cat("CV controls ready.\n")
 
 ```
 
-#### 3.5 KNN
+#### 5.5 K-Nearest Neighbours
 
 ```{r model-knn, message=FALSE, warning=FALSE}
 # Encoding & scaling: add preProcess = c("center", "scale") in train()
-# This z-scores numerics and dummy-encodes factors automatically
 # Train on: df_train | CV control: cv_ctrl_smote | Weights: via SMOTE
 # Evaluate on: df_test | Temporal check: df_holdout_2024
 
 ```
 
-#### 3.6 Naive Bayes
+#### 5.6 Naive Bayes
 
 ```{r model-nb, message=FALSE, warning=FALSE}
 # Encoding & scaling: none required — naive_bayes handles factors directly
@@ -310,42 +281,28 @@ cat("CV controls ready.\n")
 
 ---
 
-### 4 Evaluation & Results
+### 6 Model Improvement
 
-#### 4.1 Per-Model Confusion Matrices
-
-```{r eval-confusion, message=FALSE, warning=FALSE}
-
-```
-
-#### 4.2 Metric Comparison Table
-
-```{r eval-metrics-table, message=FALSE, warning=FALSE}
-
-```
-
-#### 4.3 Variable Importance (Random Forest & XGBoost)
-
-```{r eval-varimp, message=FALSE, warning=FALSE}
-
-```
+<!-- TODO: [member name] — per-model tuning (§6.1–§6.6): tuning grid, CV curve, best params, before/after comparison -->
 
 ---
 
-### 5 Conclusion
+### 7 Model Evaluation & Selection
+
+<!-- TODO: [member name] — comparison table (6 models × 4 metrics), best model selection + justification -->
+
+---
+
+### 8 Final Results & Conclusion
+
+<!-- TODO: [member name] — answer RQ, top predictors, practical implications, process reflection -->
 
 ---
 
 ### References
 
-Chawla, N. V., Bowyer, K. W., Hall, L. O., & Kegelmeyer, W. P. (2002). SMOTE: Synthetic minority over-sampling technique. *Journal of Artificial Intelligence Research*, *16*, 321–357. https://doi.org/10.1613/jair.953
-
-James, G., Witten, D., Hastie, T., & Tibshirani, R. (2021). *An introduction to statistical learning: With applications in R* (2nd ed.). Springer. https://doi.org/10.1007/978-1-0716-1418-1
-
-Transport for NSW. (2024). *NSW road crash data 2020–2024* [Dataset]. Australian Government Open Data Platform. https://www.data.gov.au/data/dataset/nsw-2-nsw-crash-data
-
-Transport for NSW. (2025). *NSW road safety progress report 2024*. Centre for Road Safety. https://www.transport.nsw.gov.au/system/files/media/documents/2025/crs_road_safety_progress_report_2024.pdf
+<!-- TODO: [member name] — APA 7th format references for all sources cited -->
 
 ### Acknowledgement of AI
 
-Group 07 (Workshop 12) declares that all ideas, analysis, and written content presented in this report are our own. We did not use generative AI to write our code. We used ChatGPT (GPT-5.3, OpenAI, https://chatgpt.com) and Claude Sonnet 4.6 (Anthropic, https://claude.ai) for code refinement, grammar checking, and reviewing our report against the marking rubric.
+<!-- TODO: [member name] — AI acknowledgement statement -->
