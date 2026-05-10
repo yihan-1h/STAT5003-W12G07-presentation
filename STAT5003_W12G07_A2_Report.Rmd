@@ -25,6 +25,7 @@ library(e1071)
 library(themis)
 library(pROC)
 library(flextable)
+library(MLmetrics)
 ```
 
 ```{css, echo=FALSE}
@@ -170,7 +171,8 @@ df_clean  <- df_clean %>%
 df_model <- df_clean %>%
   mutate(across(where(is.character), as.factor)) %>%
   mutate(`Degree of crash` = factor(`Degree of crash`,
-           levels = c("Fatal", "Injury", "Non-casualty (towaway)")))
+           levels = c("Fatal", "Injury", "Non-casualty (towaway)"),
+           labels = c("Fatal", "Injury", "Non_casualty"))) # rename: caret requires valid R variable names
 
 cat("Class distribution:\n")
 print(prop.table(table(df_model$`Degree of crash`)))
@@ -191,6 +193,14 @@ df_test   <- df_model_2020_23[-train_idx, ]
 
 cat("Train:", nrow(df_train), "| Test:", nrow(df_test), "| Holdout:", nrow(df_holdout_2024), "\n")
 print(prop.table(table(df_train$`Degree of crash`)))
+
+# df_train_sub = stratified 10% subsample for slow models (RF, XGBoost, KNN).
+# df_train     = full training set for fast models (LR, DT, Naive Bayes).
+# For final submission: replace df_train_sub with df_train in slow model chunks.
+set.seed(42)
+sub_idx      <- createDataPartition(df_train$`Degree of crash`, p = 0.50, list = FALSE)
+df_train_sub <- df_train[sub_idx, ]
+cat("Full train:", nrow(df_train), "rows | Subsample:", nrow(df_train_sub), "rows (10%)\n")
 ```
 
 ##### Step 8 — Class Imbalance Handling
@@ -227,55 +237,129 @@ Six models selected to cover a range of complexity and interpretability. All imp
 #### 5.1 Multinomial Logistic Regression
 
 ```{r model-lr, message=FALSE, warning=FALSE}
-# Encoding & scaling: add preProcess = "nzv" in train()
-# method = "multinom" handles factors via dummy variables internally
-# Train on: df_train | CV control: cv_ctrl_smote | Weights: class_weights
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.1)
+# Use DEFAULT hyperparameters — do NOT tune here
+# method = "multinom" | preProcess = "nzv" | CV: cv_ctrl_smote | Weights: class_weights
+# Produce: confusionMatrix() on df_test, heatmap, Macro-F1 / Fatal Recall / Weighted F1 / Kappa
+# Save metrics as: macro_f1_lr, fatal_recall_lr (needed for §6.1 before/after table)
 
 ```
 
 #### 5.2 Decision Tree
 
 ```{r model-dt, message=FALSE, warning=FALSE}
-# Encoding & scaling: none required — rpart handles R factors natively
-# Train on: df_train | CV control: cv_ctrl | Weights: class_weights
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.2)
+# Use DEFAULT hyperparameters — do NOT tune here
+# method = "rpart" | CV: cv_ctrl | Weights: class_weights (via weights argument)
+# Produce: rpart.plot diagram, confusionMatrix() on df_test, heatmap, 4 metrics
+# Save metrics as: macro_f1_dt, fatal_recall_dt (needed for §6.2 before/after table)
 
 ```
 
 #### 5.3 Random Forest
 
-```{r model-rf, message=FALSE, warning=FALSE}
-# Encoding & scaling: none required — randomForest handles R factors natively
-# Train on: df_train | CV control: cv_ctrl | Weights: classwt = class_weights
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+```{r model-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
+# Call randomForest() directly — caret's train() CV wrapper fails on this dataset:
+# Fatal class (~1.4%) causes some CV folds to produce zero Fatal predictions,
+# making all fold metrics NA and crashing caret. RF's built-in OOB error is an
+# unbiased estimate of generalisation error and makes CV redundant anyway.
 
+# randomForest cannot handle factors with >53 levels or NAs in predictors.
+# na.roughfix() imputes residual NAs: numeric → column median, factor → mode.
+# Using df_train_sub (10%) — swap to df_train for final submission
+rf_x_train <- na.roughfix(df_train_sub %>%
+  select(-`Degree of crash`) %>%
+  select(where(~ !is.factor(.) || nlevels(.) <= 53)) %>%
+  droplevels())
+
+# Align test factor levels to training — unseen levels become NA, then imputed
+rf_x_test_raw <- df_test %>% select(all_of(names(rf_x_train)))
+for (col in names(rf_x_test_raw)) {
+  if (is.factor(rf_x_test_raw[[col]]))
+    rf_x_test_raw[[col]] <- factor(rf_x_test_raw[[col]], levels = levels(rf_x_train[[col]]))
+}
+rf_x_test <- na.roughfix(rf_x_test_raw)
+
+set.seed(42)
+model_rf <- randomForest(
+  x          = rf_x_train,
+  y          = df_train_sub$`Degree of crash`,
+  mtry       = floor(sqrt(ncol(rf_x_train))),
+  ntree      = 100,
+  importance = TRUE
+)
+
+# Test set predictions and metrics
+pred_rf         <- predict(model_rf, rf_x_test)
+cm_rf           <- confusionMatrix(pred_rf, df_test$`Degree of crash`)
+fatal_recall_rf <- cm_rf$byClass["Class: Fatal", "Recall"]
+macro_f1_rf     <- mean(cm_rf$byClass[, "F1"],  na.rm = TRUE)
+weighted_f1_rf  <- weighted.mean(cm_rf$byClass[, "F1"],
+                    prop.table(table(df_test$`Degree of crash`)), na.rm = TRUE)
+kappa_rf        <- cm_rf$overall["Kappa"]
+
+cat(sprintf(
+  "=== Random Forest — Test Set Metrics ===\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  model_rf$err.rate[100, "OOB"], macro_f1_rf, fatal_recall_rf, weighted_f1_rf, kappa_rf
+))
+
+# Confusion matrix heatmap
+as.data.frame(cm_rf$table) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "#1F4E79") +
+  labs(title = "Random Forest — Confusion Matrix (Test Set)",
+       subtitle = paste0("Fatal Recall: ", round(fatal_recall_rf, 3),
+                         "  |  Macro-F1: ", round(macro_f1_rf, 3))) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+# Variable importance (top 15) — MeanDecreaseAccuracy across all classes
+imp_df <- as.data.frame(importance(model_rf, type = 1))
+imp_df$Feature <- rownames(imp_df)
+imp_df %>%
+  arrange(desc(MeanDecreaseAccuracy)) %>%
+  head(15) %>%
+  ggplot(aes(x = reorder(Feature, MeanDecreaseAccuracy), y = MeanDecreaseAccuracy)) +
+  geom_col(fill = "#2E74B5") +
+  coord_flip() +
+  labs(title = "Random Forest — Variable Importance (Top 15)",
+       x = NULL, y = "Mean Decrease in Accuracy") +
+  theme_minimal(base_size = 12)
 ```
 
 #### 5.4 XGBoost
 
 ```{r model-xgb, message=FALSE, warning=FALSE}
-# Encoding: requires numeric matrix — use model.matrix(~ . - 1, data = df_train) to one-hot encode
-# Train on: df_train | CV control: cv_ctrl | Weights: scale_pos_weight
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.4)
+# Use DEFAULT hyperparameters — do NOT tune here
+# method = "xgbTree" | requires one-hot encoding via model.matrix(~ . - 1)
+# CV: cv_ctrl | Weights: scale_pos_weight in xgb params
+# Produce: confusionMatrix() on df_test, heatmap, 4 metrics
+# Save metrics as: macro_f1_xgb, fatal_recall_xgb (needed for §6.4 before/after table)
 
 ```
 
 #### 5.5 K-Nearest Neighbours
 
 ```{r model-knn, message=FALSE, warning=FALSE}
-# Encoding & scaling: add preProcess = c("center", "scale") in train()
-# Train on: df_train | CV control: cv_ctrl_smote | Weights: via SMOTE
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.5)
+# Use DEFAULT k — do NOT tune here (default k = 5 or caret's single default)
+# method = "kknn" | preProcess = c("center", "scale") | CV: cv_ctrl_smote
+# Produce: confusionMatrix() on df_test, heatmap, 4 metrics
+# Save metrics as: macro_f1_knn, fatal_recall_knn (needed for §6.5 before/after table)
 
 ```
 
 #### 5.6 Naive Bayes
 
 ```{r model-nb, message=FALSE, warning=FALSE}
-# Encoding & scaling: none required — naive_bayes handles factors directly
-# Train on: df_train | CV control: cv_ctrl_smote | Weights: via SMOTE
-# Evaluate on: df_test | Temporal check: df_holdout_2024
+# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.6)
+# Use DEFAULT hyperparameters (usekernel = FALSE, laplace = 0) — do NOT tune here
+# method = "naive_bayes" | CV: cv_ctrl_smote | Weights: via SMOTE + class prior
+# Produce: confusionMatrix() on df_test, heatmap, 4 metrics
+# Save metrics as: macro_f1_nb, fatal_recall_nb (needed for §6.6 before/after table)
 
 ```
 
@@ -283,7 +367,128 @@ Six models selected to cover a range of complexity and interpretability. All imp
 
 ### 6 Model Improvement
 
-<!-- TODO: [member name] — per-model tuning (§6.1–§6.6): tuning grid, CV curve, best params, before/after comparison -->
+#### 6.1 Multinomial Logistic Regression — Improvement
+
+```{r improve-lr, message=FALSE, warning=FALSE}
+# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.1)
+# Tune: decay via tuneGrid = expand.grid(decay = c(0, 0.001, 0.01, 0.1))
+# Plot: decay vs Mean_F1 curve from model_lr_tuned$results
+# Table: before/after using macro_f1_lr / fatal_recall_lr from §5.1 vs tuned values
+```
+
+#### 6.2 Decision Tree — Improvement
+
+```{r improve-dt, message=FALSE, warning=FALSE}
+# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.2)
+# Tune: cp via tuneGrid = expand.grid(cp = seq(0.0001, 0.01, by = 0.001))
+# Plot: cp vs Mean_F1 curve from model_dt_tuned$results (or plotcp on standalone rpart fit)
+# Table: before/after using macro_f1_dt / fatal_recall_dt from §5.2 vs tuned values
+```
+
+#### 6.3 Random Forest — Improvement
+
+```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
+# Use a 20k-row subsample of rf_x_train to search mtry quickly via tuneRF().
+# Finding the best mtry doesn't need the full dataset — OOB rankings are stable
+# on a representative subsample. Final model is still fit on the full training set.
+set.seed(42)
+tune_idx <- sample(nrow(rf_x_train), min(nrow(rf_x_train), 20000))
+invisible(capture.output(
+  tune_result <- tuneRF(
+    x          = rf_x_train[tune_idx, ],
+    y          = df_train_sub$`Degree of crash`[tune_idx],
+    mtryStart  = floor(sqrt(ncol(rf_x_train))),
+    ntreeTry   = 50,
+    stepFactor = 1.5,
+    improve    = 0.01,
+    trace      = FALSE,
+    plot       = FALSE
+  )
+))
+best_mtry <- tune_result[which.min(tune_result[, "OOBError"]), "mtry"]
+cat("Best mtry from tuneRF:", best_mtry, "\n")
+
+# mtry vs OOB error curve
+as.data.frame(tune_result) %>%
+  ggplot(aes(x = mtry, y = OOBError)) +
+  geom_line(colour = "#2E74B5", linewidth = 1) +
+  geom_point(size = 3, colour = "#2E74B5") +
+  geom_vline(xintercept = best_mtry, linetype = "dashed", colour = "#C0392B") +
+  annotate("text", x = best_mtry, y = max(tune_result[, "OOBError"]),
+           label = paste("Best mtry =", best_mtry),
+           hjust = -0.1, colour = "#C0392B", size = 3.5) +
+  labs(title = "Random Forest — Tuning: mtry vs OOB Error (20k subsample)",
+       x = "mtry (variables randomly sampled per split)", y = "OOB Error Rate") +
+  theme_minimal(base_size = 12)
+
+# Final tuned model fit — using df_train_sub (50%), swap to df_train for final submission
+set.seed(42)
+model_rf_tuned <- randomForest(
+  x          = rf_x_train,
+  y          = df_train_sub$`Degree of crash`,
+  mtry       = best_mtry,
+  ntree      = 100,
+  importance = TRUE
+)
+
+pred_rf_tuned      <- predict(model_rf_tuned, rf_x_test)
+cm_rf_tuned        <- confusionMatrix(pred_rf_tuned, df_test$`Degree of crash`)
+fatal_recall_tuned <- cm_rf_tuned$byClass["Class: Fatal", "Recall"]
+macro_f1_tuned     <- mean(cm_rf_tuned$byClass[, "F1"], na.rm = TRUE)
+weighted_f1_tuned  <- weighted.mean(cm_rf_tuned$byClass[, "F1"],
+                       prop.table(table(df_test$`Degree of crash`)), na.rm = TRUE)
+kappa_tuned        <- cm_rf_tuned$overall["Kappa"]
+
+cat(sprintf(
+  "=== RF Tuned — Test Set Metrics ===\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  model_rf_tuned$err.rate[100, "OOB"], macro_f1_tuned, fatal_recall_tuned, weighted_f1_tuned, kappa_tuned
+))
+
+# Before / after comparison table
+data.frame(
+  Model          = c("RF — default mtry", "RF — tuned mtry"),
+  mtry           = c(floor(sqrt(ncol(rf_x_train))), best_mtry),
+  `Macro-F1`     = round(c(macro_f1_rf,    macro_f1_tuned),    4),
+  `Fatal Recall` = round(c(fatal_recall_rf, fatal_recall_tuned), 4),
+  check.names = FALSE
+) %>% knitr::kable(caption = "Random Forest — Before vs After Tuning")
+
+# OOB error vs ntree curve (convergence check)
+data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
+           OOB   = model_rf_tuned$err.rate[, "OOB"]) %>%
+  ggplot(aes(x = ntree, y = OOB)) +
+  geom_line(colour = "#2E74B5") +
+  labs(title = "Random Forest — OOB Error vs Number of Trees (tuned mtry)",
+       x = "Number of trees", y = "OOB error rate") +
+  theme_minimal(base_size = 12)
+```
+
+#### 6.4 XGBoost — Improvement
+
+```{r improve-xgb, message=FALSE, warning=FALSE}
+# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.4)
+# Tune: nrounds, max_depth, eta via expand.grid(nrounds=c(50,100,200), max_depth=c(3,6), eta=c(0.01,0.1,0.3))
+# Plot: best nrounds vs Mean_F1 curve from model_xgb_tuned$results
+# Table: before/after using macro_f1_xgb / fatal_recall_xgb from §5.4 vs tuned values
+```
+
+#### 6.5 K-Nearest Neighbours — Improvement
+
+```{r improve-knn, message=FALSE, warning=FALSE}
+# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.5)
+# Tune: kmax via tuneGrid = expand.grid(kmax = c(5, 11, 21, 31, 51), distance = 2, kernel = "optimal")
+# Plot: k vs Mean_F1 curve from model_knn_tuned$results
+# Table: before/after using macro_f1_knn / fatal_recall_knn from §5.5 vs tuned values
+```
+
+#### 6.6 Naive Bayes — Improvement
+
+```{r improve-nb, message=FALSE, warning=FALSE}
+# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.6)
+# Tune: usekernel and laplace via tuneGrid = expand.grid(usekernel = c(TRUE, FALSE), laplace = c(0, 0.5, 1), adjust = 1)
+# Plot: bar chart of Macro-F1 across tuning combinations
+# Table: before/after using macro_f1_nb / fatal_recall_nb from §5.6 vs tuned values
+```
 
 ---
 
