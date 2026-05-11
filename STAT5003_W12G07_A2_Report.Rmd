@@ -26,6 +26,9 @@ library(themis)
 library(pROC)
 library(flextable)
 library(MLmetrics)
+
+# Create plots output folder — all ggsave() calls write here for use in Presentation Rmd
+dir.create("plots", showWarnings = FALSE)
 ```
 
 ```{css, echo=FALSE}
@@ -69,7 +72,7 @@ str(df)
 
 All data-dependent steps are performed **within cross-validation folds** to prevent data leakage (James et al., 2021).
 
-##### Step 1 — Data Integration & TU-Level Feature Aggregation
+#### 4.1 Data Integration & TU-Level Feature Aggregation
 
 ```{r step1-integration, message=FALSE, warning=FALSE, results='hide'}
 # Each row is one traffic unit — summarise binary flags per crash, then join back
@@ -88,7 +91,7 @@ df <- df %>% left_join(tu_flags, by = "Crash ID")
 cat("TU flags added. Rows:", nrow(df), "| New cols:", ncol(df), "\n")
 ```
 
-##### Step 2 — Feature Removal
+#### 4.2 Feature Removal
 
 ```{r step2-removal, message=FALSE, warning=FALSE, results='hide'}
 # Leakage: post-crash outcome counts that directly encode the target
@@ -116,7 +119,7 @@ df_clean  <- df %>% select(-any_of(drop_cols))
 cat("Columns after removal:", ncol(df_clean), "\n")
 ```
 
-##### Step 3 — Missing Value Imputation
+#### 4.3 Missing Value Imputation
 
 ```{r step3-imputation, message=FALSE, warning=FALSE, results='hide'}
 df_clean <- df_clean %>%
@@ -128,7 +131,7 @@ df_clean <- df_clean %>%
 cat("Missing values after imputation:", sum(is.na(df_clean)), "\n")
 ```
 
-##### Step 4 — Feature Engineering
+#### 4.4 Feature Engineering
 
 ```{r step4-engineering, message=FALSE, warning=FALSE, results='hide'}
 df_clean <- df_clean %>%
@@ -149,7 +152,7 @@ df_clean <- df_clean %>%
 cat("Engineered features added. Columns:", ncol(df_clean), "\n")
 ```
 
-##### Step 5 — Outlier Detection
+#### 4.5 Outlier Detection
 
 ```{r step5-outliers, message=FALSE, warning=FALSE, results='hide'}
 p99_dist <- quantile(df_clean$Distance, 0.99, na.rm = TRUE)
@@ -160,7 +163,7 @@ df_clean <- df_clean %>%
 cat("Rows after outlier removal:", nrow(df_clean), "\n")
 ```
 
-##### Step 6 — Encoding & LGA Pooling
+#### 4.6 Encoding & LGA Pooling
 
 ```{r step6-encoding, message=FALSE, warning=FALSE, results='hide'}
 lga_freq  <- prop.table(table(df_clean$LGA))
@@ -179,7 +182,7 @@ print(prop.table(table(df_model$`Degree of crash`)))
 cat("LGA levels after pooling:", nlevels(df_model$LGA), "\n")
 ```
 
-##### Step 7 — Train/Test Split & Temporal Holdout
+#### 4.7 Train/Test Split & Temporal Holdout
 
 ```{r step7-split, message=FALSE, warning=FALSE, results='hide'}
 # 2024 sealed as temporal holdout — evaluated once at the very end only
@@ -194,16 +197,16 @@ df_test   <- df_model_2020_23[-train_idx, ]
 cat("Train:", nrow(df_train), "| Test:", nrow(df_test), "| Holdout:", nrow(df_holdout_2024), "\n")
 print(prop.table(table(df_train$`Degree of crash`)))
 
-# df_train_sub = stratified 10% subsample for slow models (RF, XGBoost, KNN).
-# df_train     = full training set for fast models (LR, DT, Naive Bayes).
-# For final submission: replace df_train_sub with df_train in slow model chunks.
+# df_train_sub = stratified 50% subsample used by ALL six models for a fair comparison.
+# df_train     = full training set (kept for reference / final submission swap).
+# For final submission: replace df_train_sub with df_train in all model chunks.
 set.seed(42)
 sub_idx      <- createDataPartition(df_train$`Degree of crash`, p = 0.50, list = FALSE)
 df_train_sub <- df_train[sub_idx, ]
-cat("Full train:", nrow(df_train), "rows | Subsample:", nrow(df_train_sub), "rows (10%)\n")
+cat("Full train:", nrow(df_train), "rows | Subsample:", nrow(df_train_sub), "rows (50%)\n")
 ```
 
-##### Step 8 — Class Imbalance Handling
+#### 4.8 Class Imbalance Handling
 
 ```{r step8-smote, message=FALSE, warning=FALSE, results='hide'}
 # Inverse frequency weights for models supporting class weights (LR, DT, RF)
@@ -213,7 +216,7 @@ cat("Class weights:\n"); print(round(class_weights, 4))
 # SMOTE applied inside CV fold for KNN and Naive Bayes via cv_ctrl_smote
 ```
 
-##### Step 9 — Cross-Validation Setup
+#### 4.9 Cross-Validation Setup
 
 ```{r step9-cv, message=FALSE, warning=FALSE, results='hide'}
 cv_ctrl <- trainControl(
@@ -227,6 +230,24 @@ cv_ctrl_smote <- trainControl(
 )
 cat("CV controls ready.\n")
 ```
+
+#### 4.10 Preprocessing Summary & Training Subsample Rationale
+
+Table 1 summarises the nine preprocessing steps applied to the raw merged dataset before any model is fitted.
+
+| Step | Action | Outcome |
+|---|---|---|
+| 4.1 TU Integration | Aggregated traffic-unit rows into per-crash binary flags (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) via `group_by` + `left_join` | Vehicle involvement encoded without row duplication |
+| 4.2 Feature Removal | Dropped post-crash injury counts (leakage), identifiers, free-text fields, columns with >75% missing values, and redundant severity detail | Reduced to a clean, leakage-free feature set |
+| 4.3 Imputation | Categorical NAs → `"Unknown"`; numeric NAs → column median | Zero missing values remaining; no rows discarded |
+| 4.4 Feature Engineering | Created `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, `speed_band` motivated by EDA findings | Seven additional features capturing temporal and environmental risk context |
+| 4.5 Outlier Handling | Winsorised `Distance` at 99th percentile; filtered coordinates outside NSW geographic bounds | Removed erroneous GPS outliers without discarding crash records |
+| 4.6 Encoding | All character columns converted to `factor`; LGA levels with <1% frequency pooled into `"Other"` | Reduced LGA cardinality; factors compatible with all six model packages |
+| 4.7 Train/Test Split | Stratified 80/20 split on 2020–2023 data; 2024 sealed as temporal holdout | Test set and holdout unseen during all training and tuning |
+| 4.8 Class Imbalance | Inverse-frequency class weights computed from training set; SMOTE configured inside CV folds for KNN and Naive Bayes | Fatal class (~1.4%) upweighted without contaminating the test set |
+| 4.9 CV Setup | Two `trainControl` objects: `cv_ctrl` (5-fold) and `cv_ctrl_smote` (5-fold + SMOTE) | Consistent evaluation protocol across all five caret-based models |
+
+**Training subsample.** All six models are trained on `df_train_sub`, a stratified 50% random sample of `df_train` (~55,000 rows), rather than the full training set. Two considerations motivate this choice. First, *fairness*: if computationally intensive models (Random Forest, XGBoost, KNN) were trained on a subsample while fast models (Logistic Regression, Decision Tree, Naive Bayes) used the full set, the comparison in §7 would be confounded by training set size rather than reflecting genuine algorithmic differences. Training all models on identical data eliminates this confounder. Second, *feasibility*: ensemble methods and instance-based methods scale poorly with $n$ - Random Forest and XGBoost training time grows roughly as $O(n \cdot p \cdot T)$ in the number of trees $T$, and KNN prediction is $O(n)$ per test point; fitting these on the full ~110,000-row training set within a single knit session is impractical. The 50% subsample preserves class proportions via stratified sampling (`createDataPartition`), retaining approximately 770 Fatal examples - sufficient for stable model estimation. For the final submission, replacing `df_train_sub` with `df_train` throughout §5–6 will retrain all models on the complete dataset.
 
 ------------------------------------------------------------------------
 
@@ -242,6 +263,9 @@ Six models selected to cover a range of complexity and interpretability. All imp
 # method = "multinom" | preProcess = "nzv" | CV: cv_ctrl_smote | Weights: class_weights
 # Produce: confusionMatrix() on df_test, heatmap, Macro-F1 / Fatal Recall / Weighted F1 / Kappa
 # Save metrics as: macro_f1_lr, fatal_recall_lr (needed for §6.1 before/after table)
+# Save plots: p_lr_cm, p_lr_coef
+#   ggsave("plots/5_1_logistic_regression_confusion_matrix.png", p_lr_cm,   width=7, height=5, dpi=150)
+#   ggsave("plots/5_1_logistic_regression_coefficients.png",     p_lr_coef, width=7, height=5, dpi=150)
 
 ```
 
@@ -253,10 +277,18 @@ Six models selected to cover a range of complexity and interpretability. All imp
 # method = "rpart" | CV: cv_ctrl | Weights: class_weights (via weights argument)
 # Produce: rpart.plot diagram, confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_dt, fatal_recall_dt (needed for §6.2 before/after table)
+# Save plots: p_dt_cm, p_dt_tree
+#   ggsave("plots/5_2_decision_tree_confusion_matrix.png", p_dt_cm, width=7, height=5, dpi=150)
+#   For rpart.plot (base R graphic, not ggplot):
+#   png("plots/5_2_decision_tree_diagram.png", width=1050, height=700, res=150)
+#   rpart.plot(model_dt$finalModel, ...)
+#   dev.off()
 
 ```
 
 #### 5.3 Random Forest
+
+A Random Forest (Breiman, 2001) was fitted using the `randomForest` package. Unlike the other models, `caret`'s CV wrapper was bypassed because the Fatal class (~1.4%) caused some folds to contain zero Fatal training examples, making all fold-level metrics `NA` and halting training. Instead, the model's built-in Out-Of-Bag (OOB) error is used as the cross-validation estimate; OOB error is mathematically equivalent to leave-one-out CV for bagged ensembles and is unbiased (Breiman, 2001). The model was fitted with `mtry` = $\lfloor\sqrt{p}\rfloor$ (default) and `ntree` = 100. All six models in §5 are trained on the same stratified 50% subsample (`df_train_sub`, ~55,000 rows) to ensure a fair comparison in §7; class imbalance was addressed via inverse-frequency class weights passed to the `classwt` argument.
 
 ```{r model-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
 # Call randomForest() directly — caret's train() CV wrapper fails on this dataset:
@@ -266,7 +298,7 @@ Six models selected to cover a range of complexity and interpretability. All imp
 
 # randomForest cannot handle factors with >53 levels or NAs in predictors.
 # na.roughfix() imputes residual NAs: numeric → column median, factor → mode.
-# Using df_train_sub (10%) — swap to df_train for final submission
+# Using df_train_sub (50%) — swap to df_train for final submission
 rf_x_train <- na.roughfix(df_train_sub %>%
   select(-`Degree of crash`) %>%
   select(where(~ !is.factor(.) || nlevels(.) <= 53)) %>%
@@ -304,7 +336,7 @@ cat(sprintf(
 ))
 
 # Confusion matrix heatmap
-as.data.frame(cm_rf$table) %>%
+p_rf_cm <- as.data.frame(cm_rf$table) %>%
   ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
   geom_tile(colour = "white") +
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
@@ -314,11 +346,13 @@ as.data.frame(cm_rf$table) %>%
                          "  |  Macro-F1: ", round(macro_f1_rf, 3))) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "none")
+print(p_rf_cm)
+ggsave("plots/5_3_random_forest_confusion_matrix.png", p_rf_cm, width = 7, height = 5, dpi = 150)
 
 # Variable importance (top 15) — MeanDecreaseAccuracy across all classes
 imp_df <- as.data.frame(importance(model_rf, type = 1))
 imp_df$Feature <- rownames(imp_df)
-imp_df %>%
+p_rf_varimp <- imp_df %>%
   arrange(desc(MeanDecreaseAccuracy)) %>%
   head(15) %>%
   ggplot(aes(x = reorder(Feature, MeanDecreaseAccuracy), y = MeanDecreaseAccuracy)) +
@@ -327,7 +361,11 @@ imp_df %>%
   labs(title = "Random Forest — Variable Importance (Top 15)",
        x = NULL, y = "Mean Decrease in Accuracy") +
   theme_minimal(base_size = 12)
+print(p_rf_varimp)
+ggsave("plots/5_3_random_forest_variable_importance_top15.png", p_rf_varimp, width = 7, height = 5, dpi = 150)
 ```
+
+The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weighted F1 of 0.813, and Cohen's Kappa of 0.583 on the test set — a substantial improvement over a naive majority-class baseline. Fatal Recall was 0.144: the model correctly identified 54 of 376 fatal crashes, with the remaining 322 classified as Injury (318) or Non-casualty (4). While Fatal Recall is below the target threshold of 0.50, this is expected at the default `mtry` given the severe class imbalance; tuning is addressed in §6.3. The variable importance plot (Mean Decrease in Accuracy) reveals that **Street lighting**, **LGA**, **Day of week**, and **Month of crash** are the four strongest predictors, suggesting that environmental context and temporal patterns dominate crash severity over vehicle-type features. The inclusion of **Latitude** and **Longitude** in the top ten confirms that spatial location carries substantial residual predictive signal beyond the categorical LGA variable.
 
 #### 5.4 XGBoost
 
@@ -338,6 +376,9 @@ imp_df %>%
 # CV: cv_ctrl | Weights: scale_pos_weight in xgb params
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_xgb, fatal_recall_xgb (needed for §6.4 before/after table)
+# Save plots: p_xgb_cm, p_xgb_varimp
+#   ggsave("plots/5_4_xgboost_confusion_matrix.png",          p_xgb_cm,     width=7, height=5, dpi=150)
+#   ggsave("plots/5_4_xgboost_variable_importance_top15.png", p_xgb_varimp, width=7, height=5, dpi=150)
 
 ```
 
@@ -349,6 +390,8 @@ imp_df %>%
 # method = "kknn" | preProcess = c("center", "scale") | CV: cv_ctrl_smote
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_knn, fatal_recall_knn (needed for §6.5 before/after table)
+# Save plots: p_knn_cm
+#   ggsave("plots/5_5_knn_confusion_matrix.png", p_knn_cm, width=7, height=5, dpi=150)
 
 ```
 
@@ -360,6 +403,8 @@ imp_df %>%
 # method = "naive_bayes" | CV: cv_ctrl_smote | Weights: via SMOTE + class prior
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_nb, fatal_recall_nb (needed for §6.6 before/after table)
+# Save plots: p_nb_cm
+#   ggsave("plots/5_6_naive_bayes_confusion_matrix.png", p_nb_cm, width=7, height=5, dpi=150)
 
 ```
 
@@ -367,7 +412,7 @@ imp_df %>%
 
 ### 6 Model Improvement
 
-#### 6.1 Multinomial Logistic Regression — Improvement
+#### 6.1 Multinomial Logistic Regression - Improvement
 
 ```{r improve-lr, message=FALSE, warning=FALSE}
 # TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.1)
@@ -376,7 +421,7 @@ imp_df %>%
 # Table: before/after using macro_f1_lr / fatal_recall_lr from §5.1 vs tuned values
 ```
 
-#### 6.2 Decision Tree — Improvement
+#### 6.2 Decision Tree - Improvement
 
 ```{r improve-dt, message=FALSE, warning=FALSE}
 # TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.2)
@@ -385,7 +430,9 @@ imp_df %>%
 # Table: before/after using macro_f1_dt / fatal_recall_dt from §5.2 vs tuned values
 ```
 
-#### 6.3 Random Forest — Improvement
+#### 6.3 Random Forest - Improvement
+
+The primary hyperparameter for Random Forest is `mtry` — the number of candidate variables randomly sampled at each split. The default value of $\lfloor\sqrt{p}\rfloor$ is not necessarily optimal, especially for imbalanced multi-class problems where Fatal examples are sparse. `tuneRF()` was used to search over a sequence of `mtry` values via OOB error, using a 20,000-row subsample of the training features to keep search time tractable (OOB rankings stabilise at far smaller sample sizes than the full dataset).
 
 ```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
 # Use a 20k-row subsample of rf_x_train to search mtry quickly via tuneRF().
@@ -409,7 +456,7 @@ best_mtry <- tune_result[which.min(tune_result[, "OOBError"]), "mtry"]
 cat("Best mtry from tuneRF:", best_mtry, "\n")
 
 # mtry vs OOB error curve
-as.data.frame(tune_result) %>%
+p_rf_tune <- as.data.frame(tune_result) %>%
   ggplot(aes(x = mtry, y = OOBError)) +
   geom_line(colour = "#2E74B5", linewidth = 1) +
   geom_point(size = 3, colour = "#2E74B5") +
@@ -420,6 +467,8 @@ as.data.frame(tune_result) %>%
   labs(title = "Random Forest — Tuning: mtry vs OOB Error (20k subsample)",
        x = "mtry (variables randomly sampled per split)", y = "OOB Error Rate") +
   theme_minimal(base_size = 12)
+print(p_rf_tune)
+ggsave("plots/6_3_random_forest_mtry_tuning_curve.png", p_rf_tune, width = 7, height = 5, dpi = 150)
 
 # Final tuned model fit — using df_train_sub (50%), swap to df_train for final submission
 set.seed(42)
@@ -440,30 +489,48 @@ weighted_f1_tuned  <- weighted.mean(cm_rf_tuned$byClass[, "F1"],
 kappa_tuned        <- cm_rf_tuned$overall["Kappa"]
 
 cat(sprintf(
-  "=== RF Tuned — Test Set Metrics ===\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  "    RF Tuned —  Test Set Metrics \nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
   model_rf_tuned$err.rate[100, "OOB"], macro_f1_tuned, fatal_recall_tuned, weighted_f1_tuned, kappa_tuned
 ))
 
-# Before / after comparison table
+# Confusion matrix heatmap - tuned model
+p_rf_tuned_cm <- as.data.frame(cm_rf_tuned$table) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "#1F4E79") +
+  labs(title = "Random Forest (Tuned) — Confusion Matrix (Test Set)",
+       subtitle = paste0("Fatal Recall: ", round(fatal_recall_tuned, 3),
+                         "  |  Macro-F1: ", round(macro_f1_tuned, 3))) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+print(p_rf_tuned_cm)
+ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, width = 7, height = 5, dpi = 150)
+
+# Before / After comparison table
 data.frame(
   Model          = c("RF — default mtry", "RF — tuned mtry"),
   mtry           = c(floor(sqrt(ncol(rf_x_train))), best_mtry),
   `Macro-F1`     = round(c(macro_f1_rf,    macro_f1_tuned),    4),
   `Fatal Recall` = round(c(fatal_recall_rf, fatal_recall_tuned), 4),
   check.names = FALSE
-) %>% knitr::kable(caption = "Random Forest — Before vs After Tuning")
+) %>% knitr::kable(caption = "Random Forest : Before vs After Tuning")
 
 # OOB error vs ntree curve (convergence check)
-data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
+p_rf_oob <- data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
            OOB   = model_rf_tuned$err.rate[, "OOB"]) %>%
   ggplot(aes(x = ntree, y = OOB)) +
   geom_line(colour = "#2E74B5") +
-  labs(title = "Random Forest — OOB Error vs Number of Trees (tuned mtry)",
+  labs(title = "Random Forest : OOB Error vs Number of Trees (tuned mtry)",
        x = "Number of trees", y = "OOB error rate") +
   theme_minimal(base_size = 12)
+print(p_rf_oob)
+ggsave("plots/6_3_random_forest_oob_convergence.png", p_rf_oob, width = 7, height = 5, dpi = 150)
 ```
 
-#### 6.4 XGBoost — Improvement
+`tuneRF` identified **mtry = 13** as optimal, more than double the default of 6. Retraining with this value yielded consistent improvements across every metric: OOB error dropped from 18.4% to 18.1%, Macro-F1 increased from 0.614 to 0.634, Fatal Recall improved from 0.144 to 0.181, Weighted F1 from 0.813 to 0.815, and Kappa from 0.583 to 0.590. The OOB convergence curve confirms that 100 trees is sufficient — the OOB error stabilizes before 75 trees, indicating no benefit from growing additional trees. The improvement in Fatal Recall (+0.037) is particularly meaningful: a larger `mtry` forces each tree to consider more variables per split, which helps the ensemble find the rare feature combinations that characterize fatal crashes rather than defaulting to the majority Injury signal.
+
+#### 6.4 XGBoost - Improvement
 
 ```{r improve-xgb, message=FALSE, warning=FALSE}
 # TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.4)
@@ -472,7 +539,7 @@ data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
 # Table: before/after using macro_f1_xgb / fatal_recall_xgb from §5.4 vs tuned values
 ```
 
-#### 6.5 K-Nearest Neighbours — Improvement
+#### 6.5 K-Nearest Neighbours - Improvement
 
 ```{r improve-knn, message=FALSE, warning=FALSE}
 # TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.5)
@@ -481,7 +548,7 @@ data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
 # Table: before/after using macro_f1_knn / fatal_recall_knn from §5.5 vs tuned values
 ```
 
-#### 6.6 Naive Bayes — Improvement
+#### 6.6 Naive Bayes - Improvement
 
 ```{r improve-nb, message=FALSE, warning=FALSE}
 # TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.6)
@@ -507,6 +574,8 @@ data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
 ### References
 
 <!-- TODO: [member name] — APA 7th format references for all sources cited -->
+
+------------------------------------------------------------------------
 
 ### Acknowledgement of AI
 
