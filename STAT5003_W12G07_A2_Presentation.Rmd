@@ -1,7 +1,7 @@
 ---
 title: "NSW Road Crash Severity Prediction"
 subtitle: "STAT5003 — Group 07, Workshop 12"
-author: "Group 07, Workshop 12"
+author: "Sanskar | Robert | Haipeng | Chen | Yihan"
 date: "May 2026"
 output:
   ioslides_presentation:
@@ -21,6 +21,7 @@ library(scales)
 library(knitr)
 library(kableExtra)
 library(tidyr)
+library(flextable)
 ```
 
 ```{r load-data, include=FALSE}
@@ -33,17 +34,121 @@ df_raw <- df_raw %>%
     labels = c("Fatal", "Injury", "Non-casualty")))
 ```
 
-## Problem Framing & Research Question
+## Research Question & Motivation
 
-<small style="color:#2E74B5">**Rubric criterion:** Problem Framing & Research Question &nbsp;|&nbsp; 2 pts</small>
+**Research Question:**
 
-```{r slide-rq}
-# TODO: [member name] — RQ statement, motivation, stakeholder value
+> Given environmental conditions (weather, lighting, road surface, speed limit) 
+> and traffic unit characteristics (TU type, manoeuvre, number of units), 
+> can we predict NSW road crash severity **(Fatal / Injury / Non-casualty)**?
+> — A three-class classification problem.
+
+**Motivation:**
+
+- NSW recorded **340 road fatalities in 2024**, over two-thirds in regional areas *(TfNSW, 2025)*
+- Fatal crashes represent only **~1.4%** of all crashes → severe class imbalance
+- A predictive model has direct value for:
+
+| Stakeholder | Value |
+|-------------|-------|
+| **Traffic Authorities** | Targeted speed and road interventions |
+| **Emergency Responders** | Faster, evidence-based resource allocation |
+| **Policymakers & Insurers** | Precise policy and pricing decisions |
+
+## Dataset Overview
+
+```{r dataset-overview-robert, echo=FALSE, message=FALSE, warning=FALSE}
+total_records <- nrow(df_raw)
+total_vars    <- ncol(df_raw)
+class_counts  <- table(df_raw$severity)
+class_props   <- round(prop.table(class_counts) * 100, 1)
+
+overview <- data.frame(
+  Item = c(
+    "Time Period",
+    "Data Sources",
+    "Merge Key",
+    "Total Records",
+    "Total Variables",
+    "Target Variable",
+    "Fatal",
+    "Injury",
+    "Non-casualty"
+  ),
+  Detail = c(
+    "2020 – 2024",
+    "CRASH.xlsx + TRAFFIC UNIT.xlsx (TfNSW via data.gov.au)",
+    "Crash ID (left join)",
+    format(total_records, big.mark = ","),
+    as.character(total_vars),
+    "Degree of Crash (3-class classification)",
+    paste0(format(class_counts["Fatal"], big.mark=","), 
+           " (", class_props["Fatal"], "%)"),
+    paste0(format(class_counts["Injury"], big.mark=","), 
+           " (", class_props["Injury"], "%)"),
+    paste0(format(class_counts["Non-casualty"], big.mark=","), 
+           " (", class_props["Non-casualty"], "%)")
+  )
+)
+
+flextable(overview) |>
+  set_header_labels(Item = "Item", Detail = "Detail") |>
+  theme_vanilla() |>
+  bold(j = 1) |>
+  bold(part = "header") |>
+  bg(i = c(2, 4, 6), bg = "#f5f5f5") |>
+  color(i = 7, j = 2, color = "#d62728") |>
+  color(i = 8, j = 2, color = "#ff7f0e") |>
+  color(i = 9, j = 2, color = "#2ca02c") |>
+  fontsize(size = 16, part = "all") |>    
+  fontsize(size = 18, part = "header") |> 
+  padding(padding = 8, part = "all") |> 
+  set_table_properties(width = 1) |>   
+  autofit()
 ```
 
+## Class Imbalance
+
+```{r class-imbalance-robert, echo=FALSE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+
+class_dist <- df_raw %>%
+  count(severity) %>%
+  mutate(
+    proportion = round(n / sum(n) * 100, 1),
+    label = paste0(proportion, "%\n(n=", format(n, big.mark=","), ")")
+  )
+
+ggplot(class_dist,
+       aes(x = severity, y = proportion, fill = severity)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(
+    aes(label = label),
+    vjust = -0.3,
+    size  = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(values = c(
+    "Fatal"        = "#d62728",
+    "Injury"       = "#ff7f0e",
+    "Non-casualty" = "#2ca02c"
+  )) +
+  scale_y_continuous(limits = c(0, 80)) +
+  labs(
+    title    = "Class Distribution of Crash Severity (2020–2024)",
+    subtitle = "Fatal crashes are severely underrepresented",
+    x = "Severity Class",
+    y = "Proportion (%)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+```
+
+> ⚠️ **Fatal crashes (~1.4%) are severely underrepresented**  
+> → SMOTE applied **inside training fold only**  
+> → Primary metrics: **Macro-F1** and **Fatal Recall (≥ 0.50)**
 ## EDA & Data Understanding: Dataset Overview
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-dataset}
 # TODO: [member name] — dataset summary table (source, records, variables, target, date range)
@@ -51,7 +156,7 @@ df_raw <- df_raw %>%
 
 ## EDA & Data Understanding: Class Imbalance
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-imbalance, fig.height=3.5}
 # TODO: [member name] — bar chart of Fatal / Injury / Non-casualty proportions
@@ -59,7 +164,7 @@ df_raw <- df_raw %>%
 
 ## EDA & Data Understanding: Speed vs Severity
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-speed, fig.height=3.5}
 # TODO: [member name] — stacked bar chart of severity proportion by speed limit band
@@ -67,7 +172,7 @@ df_raw <- df_raw %>%
 
 ## EDA & Data Understanding: High-Risk Scenarios
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-highrisk, fig.height=3.5}
 # TODO: [member name] — fatal rate by speed band and lighting condition
@@ -75,7 +180,7 @@ df_raw <- df_raw %>%
 
 ## EDA & Data Understanding: Temporal Patterns
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-temporal, fig.height=3.5}
 # TODO: [member name] — crash frequency heatmap by day of week and time interval
@@ -83,31 +188,31 @@ df_raw <- df_raw %>%
 
 ## Data Preprocessing: Pipeline
 
-<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing  \|  2 pts</small>
 
 **Steps 1–5: Cleaning & Feature Engineering**
 
-1. **TU Integration** — aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
-2. **Feature removal** — dropped leakage columns (post-crash injury counts), identifiers, and variables with >75% missing values; dropped `Degree of crash - detailed` (redundant with target)
-3. **Imputation** — removed rows >50% missing; categorical → `"Unknown"`; numeric → median
-4. **Feature engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands — all motivated by EDA findings
-5. **Outlier handling** — NSW geographic bounds filter; winsorise `Distance` at 99th percentile
+1.  **TU Integration** — aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
+2.  **Feature removal** — dropped leakage columns (post-crash injury counts), identifiers, and variables with \>75% missing values; dropped `Degree of crash - detailed` (redundant with target)
+3.  **Imputation** — removed rows \>50% missing; categorical → `"Unknown"`; numeric → median
+4.  **Feature engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands — all motivated by EDA findings
+5.  **Outlier handling** — NSW geographic bounds filter; winsorise `Distance` at 99th percentile
 
 **Steps 6–9: Modelling Setup**
 
-6. **Encoding** — trees use native R `factor`; KNN/LR use one-hot; rare LGA levels → `"Other"`
-7. **Scaling** — Z-score standardisation within fold for KNN; trees are scale-invariant
-8. **Class imbalance** — inverse-frequency class weights (all models); SMOTE applied **inside training fold only**
-9. **Split** — 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV
+6.  **Encoding** — trees use native R `factor`; KNN/LR use one-hot; rare LGA levels → `"Other"`
+7.  **Scaling** — Z-score standardisation within fold for KNN; trees are scale-invariant
+8.  **Class imbalance** — inverse-frequency class weights (all models); SMOTE applied **inside training fold only**
+9.  **Split** — 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV
 
 ## Data Preprocessing: Feature Engineering & Class Balancing
 
-<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing  \|  2 pts</small>
 
 **Engineered features — all motivated by EDA**
 
 | Feature | Derivation | EDA motivation |
-|---|---|---|
+|------------------------|------------------------|------------------------|
 | `speed_band` | Cut `Speed limit` into ≤50 / 60–80 / 90–100 / 110 | Fatal rate rises sharply above 100 km/h |
 | `is_night` | `Natural lighting` ∈ {Darkness, Dawn, Dusk} | Dark conditions double fatal risk |
 | `is_rush_hour` | `Two-hour intervals` ∈ {7–9, 16–18} | Commute peaks dominate crash volume |
@@ -118,13 +223,13 @@ df_raw <- df_raw %>%
 
 **Handling class imbalance**
 
-- Raw Fatal share ~1.4% → accuracy-maximising models ignore Fatal entirely
-- Strategy: **inverse-frequency class weights** (all models) + **SMOTE** inside training fold (LR, KNN)
-- SMOTE raises synthetic Fatal share to ~10% in training only — test set remains unmodified
+-   Raw Fatal share \~1.4% → accuracy-maximising models ignore Fatal entirely
+-   Strategy: **inverse-frequency class weights** (all models) + **SMOTE** inside training fold (LR, KNN)
+-   SMOTE raises synthetic Fatal share to \~10% in training only — test set remains unmodified
 
 ## Model Fitting: Approach & Setup
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r model-overview}
 model_tbl <- tibble::tibble(
@@ -155,7 +260,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: Logistic Regression
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-lr, fig.height=3.5}
 # TODO: [member name] — confusion matrix heatmap + coefficient plot or ROC curves
@@ -164,7 +269,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: Decision Tree
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-dt, fig.height=3.5}
 # TODO: [member name] — rpart.plot tree diagram + confusion matrix heatmap
@@ -173,7 +278,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: Random Forest
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-rf, fig.height=3.5}
 # TODO: [member name] — variable importance plot (top 15) + confusion matrix heatmap
@@ -182,7 +287,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: XGBoost
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-xgb, fig.height=3.5}
 # TODO: [member name] — variable importance (by Gain) + training loss curve + confusion matrix
@@ -191,7 +296,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: KNN & Naive Bayes
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-knn-nb, fig.height=3.5}
 # TODO: [member name] — k vs Macro-F1 curve (KNN) + side-by-side confusion matrices
@@ -200,7 +305,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Improvement: Hyperparameter Tuning
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Improvement &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Improvement  \|  2 pts</small>
 
 ```{r slide-improvement}
 # TODO: [member name] — tuning table (model, parameter, range, best value) + before/after metric comparison
@@ -208,7 +313,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Evaluation
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Evaluation &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Evaluation  \|  2 pts</small>
 
 ```{r slide-evaluation}
 # TODO: [member name] — comparison table (6 models x Macro-F1, Fatal Recall, Weighted F1, Kappa)
@@ -216,7 +321,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Selection
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Selection &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Model Selection  \|  2 pts</small>
 
 ```{r slide-selection}
 # TODO: [member name] — best model name, justification, top predictors from variable importance
@@ -224,7 +329,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Final Results & Conclusion
 
-<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion &nbsp;|&nbsp; 2 pts</small>
+<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion  \|  2 pts</small>
 
 ```{r slide-conclusion}
 # TODO: [member name] — answer to RQ, key findings, practical implications for stakeholders
@@ -232,7 +337,7 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Reflection & Future Directions
 
-<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion &nbsp;|&nbsp; 2 pts (continued)</small>
+<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion  \|  2 pts (continued)</small>
 
 ```{r slide-reflection}
 # TODO: [member name] — limitations, future research directions

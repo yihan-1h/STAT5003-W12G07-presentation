@@ -45,25 +45,25 @@ cat("Dimensions:", nrow(df), "rows x", ncol(df), "cols\n")
 str(df)
 ```
 
----
+------------------------------------------------------------------------
 
 ### 1 Problem Framing & Research Question
 
 <!-- TODO: [member name] — RQ statement, motivation, 3 stakeholder groups (~0.5 page) -->
 
----
+------------------------------------------------------------------------
 
 ### 2 Dataset & Justification
 
 <!-- TODO: [member name] — data source, merge process, 4-requirement justification table (~0.5 page) -->
 
----
+------------------------------------------------------------------------
 
 ### 3 EDA & Insights
 
 <!-- TODO: [member name] — 4 ggplot2 plots with key finding commentary per plot (~1 page) -->
 
----
+------------------------------------------------------------------------
 
 ### 4 Data Preprocessing
 
@@ -228,7 +228,7 @@ cv_ctrl_smote <- trainControl(
 cat("CV controls ready.\n")
 ```
 
----
+------------------------------------------------------------------------
 
 ### 5 Model Fitting
 
@@ -363,7 +363,7 @@ imp_df %>%
 
 ```
 
----
+------------------------------------------------------------------------
 
 ### 6 Model Improvement
 
@@ -490,19 +490,19 @@ data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
 # Table: before/after using macro_f1_nb / fatal_recall_nb from §5.6 vs tuned values
 ```
 
----
+------------------------------------------------------------------------
 
 ### 7 Model Evaluation & Selection
 
 <!-- TODO: [member name] — comparison table (6 models × 4 metrics), best model selection + justification -->
 
----
+------------------------------------------------------------------------
 
 ### 8 Final Results & Conclusion
 
 <!-- TODO: [member name] — answer RQ, top predictors, practical implications, process reflection -->
 
----
+------------------------------------------------------------------------
 
 ### References
 
