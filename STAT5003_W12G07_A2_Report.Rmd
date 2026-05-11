@@ -1,10 +1,13 @@
 ---
-title: ""
-author: ""
+title: "NSW Road Crash Severity Prediction"
+subtitle: "STAT5003 — Group 07, Workshop 12"
+author: "Sanskar | Robert | Haipeng | Chen | Yihan"
+date: "May 2026"
 output:
   html_document:
     code_folding: hide
 ---
+
 
 ```{r library, message=FALSE, warning=FALSE}
 library(ggplot2)
@@ -52,19 +55,93 @@ str(df)
 
 ### 1 Problem Framing & Research Question
 
-<!-- TODO: [member name] — RQ statement, motivation, 3 stakeholder groups (~0.5 page) -->
+## 1.1 Research Question
+Given environmental conditions (weather, natural lighting, road surface, speed limit) and traffic unit characteristics (type of traffic unit, manoeuvre, number of units involved), can we predict the severity of a road crash in NSW as a three-class classification problem: Fatal, Injury, or Non-casualty?
+
+## 1.2 Motivation 
+NSW recorded 340 road fatalities in 2024, with over two-thirds occurring in regional areas (Transport for NSW, 2025), highlighting the need for data-driven approaches to understanding crash severity. Fatal crashes represent only approximately 1.4% of all crashes, introducing severe class imbalance that must be carefully addressed during modelling and evaluation.
+
+A predictive model for crash severity has direct real-world value for the following stakeholders:
+NSW Traffic Management Authorities: By identifying key combinations of environmental and traffic characteristics associated with severe crashes, authorities can make targeted decisions such as adjusting speed limits and improving road design in high-risk areas.
+
+Emergency Response Teams: Predicting crash severity based on environmental conditions in the early stages of an incident can support faster and more evidence-based allocation of ambulance and emergency resources.
+Policymakers and Insurance Institutions: Understanding which traffic unit types and environmental conditions are associated with higher severity risk can inform more precise road safety policies and insurance pricing models.
 
 ------------------------------------------------------------------------
 
 ### 2 Dataset & Justification
+## 2.1 Dataset Overview
 
-<!-- TODO: [member name] — data source, merge process, 4-requirement justification table (~0.5 page) -->
+```{r dataset-overview, echo=FALSE, message=FALSE, warning=FALSE}
+overview <- data.frame(
+  Item = c(
+    "Time Period",
+    "Data Sources",
+    "Merge Key",
+    "Total Records",
+    "Total Variables",
+    "Target Variable",
+    "Fatal",
+    "Injury",
+    "Non-casualty"
+  ),
+  Detail = c(
+    "2020 – 2024",
+    "CRASH.xlsx + TRAFFIC UNIT.xlsx (TfNSW via data.gov.au)",
+    "Crash ID (left join)",
+    format(nrow(df), big.mark = ","),
+    as.character(ncol(df)),
+    "Degree of Crash (3-class classification)",
+    paste0(format(sum(df$`Degree of crash` == "Fatal"), big.mark = ","),
+           " (", round(mean(df$`Degree of crash` == "Fatal") * 100, 1), "%)"),
+    paste0(format(sum(df$`Degree of crash` == "Injury"), big.mark = ","),
+           " (", round(mean(df$`Degree of crash` == "Injury") * 100, 1), "%)"),
+    paste0(format(sum(df$`Degree of crash` == "Non-casualty (towaway)"), big.mark = ","),
+           " (", round(mean(df$`Degree of crash` == "Non-casualty (towaway)") * 100, 1), "%)")
+  )
+)
+
+knitr::kable(overview, col.names = c("Item", "Detail"),
+             caption = "Table 1: Dataset Overview")
+```
 
 ------------------------------------------------------------------------
 
 ### 3 EDA & Insights
+```{r 311-selected, fig.width=12, fig.height=4, message=FALSE, warning=FALSE}
+library(gridExtra)
 
-<!-- TODO: [member name] — 4 ggplot2 plots with key finding commentary per plot (~1 page) -->
+p1 <- ggplot(df, aes(x = fct_infreq(`Degree of crash`))) +
+    geom_bar() +
+    geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 3) +
+    labs(title = "Distribution of Crash Severity", x = "Severity", y = "Count") +
+    theme_minimal() + theme(legend.position = "none")
+
+p2 <- ggplot(df, aes(x = `Speed limit`)) +
+  geom_bar(fill = "tomato") +
+  labs(title = "Distribution of Speed Limit", x = "Speed Limit", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p3 <- ggplot(df, aes(x = fct_infreq(`TU type group`))) +
+    geom_bar(fill = "steelblue") +
+    labs(title = "Distribution of TU Type", x = "TU Type", y = "Count") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p4 <- ggplot(df, aes(x = fct_infreq(Urbanisation))) +
+  geom_bar(fill = "purple") +
+  labs(title = "Distribution of Urbanisation", x = "Urbanisation", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+grid.arrange(p1, p2, p3, p4, nrow = 1)
+```
+
+- **Crash Severity:** Fatal crashes represent only 1.4% of records, indicating severe class imbalance that must be addressed during modelling.
+- **Speed Limit:** Crashes are heavily concentrated in 50–60 km/h urban zones, reflecting higher traffic volume rather than elevated per-trip risk.
+- **Traffic Unit Type:** Car/car derivatives dominate (~114,477), with pedestrians and motorcycles being rare but disproportionately associated with severe outcomes.
+- **Urbanisation:** Sydney metro accounts for the most crashes (98,975), while Country non-urban regions show higher fatal proportions despite lower overall volume.
 
 ------------------------------------------------------------------------
 
