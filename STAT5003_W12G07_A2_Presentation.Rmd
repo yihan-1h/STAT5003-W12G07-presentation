@@ -1,6 +1,6 @@
 ---
 title: "NSW Road Crash Severity Prediction"
-subtitle: "STAT5003 — Group 07, Workshop 12"
+subtitle: "STAT5003 - Group 07, Workshop 12"
 author: "Sanskar | Robert | Haipeng | Chen | Yihan"
 date: "21 May 2026"
 output:
@@ -41,12 +41,12 @@ df_raw <- df_raw %>%
 > Given environmental conditions (weather, lighting, road surface, speed limit) 
 > and traffic unit characteristics (TU type, manoeuvre, number of units), 
 > can we predict NSW road crash severity **(Fatal / Injury / Non-casualty)**?
-> — A three-class classification problem.
+> - A three-class classification problem.
 
 **Motivation:**
 
 - NSW recorded **340 road fatalities in 2024**, over two-thirds in regional areas *(TfNSW, 2025)*
-- Fatal crashes represent only **~1.4%** of all crashes → severe class imbalance
+- Fatal crashes represent only **~1.4%** of all crashes : severe class imbalance
 - A predictive model has direct value for:
 
 | Stakeholder | Value |
@@ -109,7 +109,9 @@ flextable(overview) |>
 
 ## EDA & Data Understanding: Class Imbalance
 
-```{r class-imbalance-robert, echo=FALSE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
+<div style="display:flex; align-items:flex-start; gap:20px;">
+<div style="flex:0 0 58%;">
+```{r class-imbalance-robert, echo=FALSE, message=FALSE, warning=FALSE, fig.width=5, fig.height=3.2}
 
 class_dist <- df_raw %>%
   count(severity) %>%
@@ -132,31 +134,31 @@ ggplot(class_dist,
     "Injury"       = "#ff7f0e",
     "Non-casualty" = "#2ca02c"
   )) +
-  scale_y_continuous(limits = c(0, 80)) +
+  scale_y_continuous(limits = c(0, 75)) +
   labs(
-    title    = "Class Distribution of Crash Severity (2020–2024)",
-    subtitle = "Fatal crashes are severely underrepresented",
+    title    = "Class Distribution (2020-2024)",
+    subtitle = "Fatal crashes severely underrepresented",
     x = "Severity Class",
     y = "Proportion (%)"
   ) +
-  theme_minimal(base_size = 13) +
+  theme_minimal(base_size = 11) +
   theme(legend.position = "none")
 ```
+</div>
+<div style="flex:0 0 38%; padding-top:10px; font-size:14px;">
 
->  **Fatal crashes (~1.4%) are severely underrepresented**  
->  SMOTE applied **inside training fold only**  
->  Primary metrics: **Macro-F1** and **Fatal Recall (≥ 0.50)**
-## EDA & Data Understanding: Dataset Overview
+| Issue / Decision | Detail |
+|:-----------------|:-------|
+| **Class imbalance** | Fatal only ~1.4% of all crashes |
+| **Risk of naive models** | Accuracy-maximising models ignore Fatal entirely |
+| **Imbalance strategy** | Inverse-frequency class weights (all models) |
+| **SMOTE** | Applied inside training fold only; synthetic Fatal share raised to ~10% in training |
+| **Primary metrics** | Macro-F1 and Fatal Recall (target >= 0.50) |
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
-
-```{r slide-dataset}
-# TODO: [member name] — dataset summary table (source, records, variables, target, date range)
-```
-
+</div>
+</div>
 ## EDA & Data Understanding: Speed vs Severity
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-speed, fig.height=3.5}
 speed_levels <- c("10 km/h","20 km/h","30 km/h","40 km/h","50 km/h",
@@ -180,11 +182,10 @@ df_raw %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right")
 ```
 
-> **Key finding:** Fatal proportion doubles at 100 km/h and triples at 110 km/h relative to 50 km/h zones — directly motivates `speed_band` feature engineering.
+> **Key finding:** Fatal proportion doubles at 100 km/h and triples at 110 km/h relative to 50 km/h zones - directly motivates `speed_band` feature engineering.
 
 ## EDA & Data Understanding: High-Risk Scenarios
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-highrisk, fig.height=3.8}
 risk_table <- df_raw %>%
@@ -208,11 +209,10 @@ kable(risk_table, align = c("l","l","l","r","r")) %>%
   column_spec(5, bold = TRUE, color = "#d62728")
 ```
 
-> **Key finding:** Highest-risk scenarios all share 110 km/h + darkness + rural conditions — three features directly captured by `speed_band`, `is_night`, and `Urbanisation`.
+> **Key finding:** Highest-risk scenarios all share 110 km/h + darkness + rural conditions - three features directly captured by `speed_band`, `is_night`, and `Urbanisation`.
 
 ## EDA & Data Understanding: Temporal Patterns
 
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-temporal, fig.height=3.5}
 day_levels <- c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
@@ -238,48 +238,70 @@ df_raw %>%
 
 ## Data Preprocessing: Pipeline
 
-<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing  \|  2 pts</small>
 
 **Steps 1–5: Cleaning & Feature Engineering**
 
-1.  **TU Integration** — aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
-2.  **Feature removal** — dropped leakage columns (post-crash injury counts), identifiers, and variables with \>75% missing values; dropped `Degree of crash - detailed` (redundant with target)
-3.  **Imputation** — removed rows \>50% missing; categorical → `"Unknown"`; numeric → median
-4.  **Feature engineering** — `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands — all motivated by EDA findings
-5.  **Outlier handling** — NSW geographic bounds filter; winsorise `Distance` at 99th percentile
+1.  **TU Integration** - aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
+2.  **Feature removal** - dropped leakage columns (post-crash injury counts), identifiers, and variables with \>75% missing values; dropped `Degree of crash - detailed` (redundant with target)
+3.  **Imputation** - removed rows \>50% missing; categorical : `"Unknown"`; numeric : median
+4.  **Feature engineering** - `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands - all motivated by EDA findings
+5.  **Outlier handling** - NSW geographic bounds filter; winsorise `Distance` at 99th percentile
 
 **Steps 6–9: Modelling Setup**
 
-6.  **Encoding** — trees use native R `factor`; KNN/LR use one-hot; rare LGA levels → `"Other"`
-7.  **Scaling** — Z-score standardisation within fold for KNN; trees are scale-invariant
-8.  **Class imbalance** — inverse-frequency class weights (all models); SMOTE applied **inside training fold only**
-9.  **Split** — 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV
+<ol start="6">
+<li>**Encoding** - trees use native R `factor`; KNN/LR use one-hot; rare LGA levels : `"Other"`</li>
+<li>**Scaling** - Z-score standardisation within fold for KNN; trees are scale-invariant</li>
+<li>**Class imbalance** - inverse-frequency class weights (all models); SMOTE applied **inside training fold only**</li>
+<li>**Split** - 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV</li>
+</ol>
 
 ## Data Preprocessing: Feature Engineering & Class Balancing
 
-<small style="color:#2E74B5">**Rubric criterion:** Data Preprocessing  \|  2 pts</small>
 
-**Engineered features — all motivated by EDA**
+<div style="display:flex; align-items:flex-start; gap:20px;">
+<div style="flex:0 0 63%;">
 
-| Feature | Derivation | EDA motivation |
-|------------------------|------------------------|------------------------|
-| `speed_band` | Cut `Speed limit` into ≤50 / 60–80 / 90–100 / 110 | Fatal rate rises sharply above 100 km/h |
-| `is_night` | `Natural lighting` ∈ {Darkness, Dawn, Dusk} | Dark conditions double fatal risk |
-| `is_rush_hour` | `Two-hour intervals` ∈ {7–9, 16–18} | Commute peaks dominate crash volume |
-| `is_weekend` | `Day of week of crash` ∈ Saturday, Sunday | Weekend crashes differ in severity profile |
-| `is_wet` | `Surface condition` contains "Wet" | Wet roads linked to skidding fatalities |
-| `has_motorcycle` | TU-level aggregated flag | Motorcyclists over-represented in fatals |
-| `has_pedestrian` | TU-level aggregated flag | Pedestrian crashes nearly always severe |
+**Engineered features** — all motivated by EDA
+
+<table style="font-size:12px; width:100%; border-collapse:collapse;">
+<thead><tr style="background:#2E74B5; color:white;">
+  <th style="padding:4px 7px;">Feature</th>
+  <th style="padding:4px 7px;">Derivation</th>
+  <th style="padding:4px 7px;">EDA motivation</th>
+</tr></thead>
+<tbody>
+  <tr><td style="padding:3px 7px;"><code>speed_band</code></td><td style="padding:3px 7px;">Cut Speed limit: ≤50 / 60–80 / 90–100 / 110</td><td style="padding:3px 7px;">Fatal rate rises above 100 km/h</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_night</code></td><td style="padding:3px 7px;">Natural lighting in {Darkness, Dawn, Dusk}</td><td style="padding:3px 7px;">Dark conditions double fatal risk</td></tr>
+  <tr><td style="padding:3px 7px;"><code>is_rush_hour</code></td><td style="padding:3px 7px;">Two-hour intervals in {7–9, 16–18}</td><td style="padding:3px 7px;">Commute peaks dominate crash volume</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_weekend</code></td><td style="padding:3px 7px;">Day of week in Saturday, Sunday</td><td style="padding:3px 7px;">Weekend crashes differ in severity</td></tr>
+  <tr><td style="padding:3px 7px;"><code>is_wet</code></td><td style="padding:3px 7px;">Surface condition contains "Wet"</td><td style="padding:3px 7px;">Wet roads linked to skidding fatalities</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>has_motorcycle</code></td><td style="padding:3px 7px;">TU-level aggregated flag</td><td style="padding:3px 7px;">Motorcyclists over-represented in fatals</td></tr>
+  <tr><td style="padding:3px 7px;"><code>has_pedestrian</code></td><td style="padding:3px 7px;">TU-level aggregated flag</td><td style="padding:3px 7px;">Pedestrian crashes nearly always severe</td></tr>
+</tbody>
+</table>
+</div>
+<div style="flex:0 0 33%; font-size:12px;">
 
 **Handling class imbalance**
 
--   Raw Fatal share \~1.4% → accuracy-maximising models ignore Fatal entirely
--   Strategy: **inverse-frequency class weights** (all models) + **SMOTE** inside training fold (LR, KNN)
--   SMOTE raises synthetic Fatal share to \~10% in training only — test set remains unmodified
+<table style="width:100%; border-collapse:collapse; font-size:12px;">
+<thead><tr style="background:#2E74B5; color:white;">
+  <th style="padding:4px 7px;">Issue</th><th style="padding:4px 7px;">Strategy</th>
+</tr></thead>
+<tbody>
+  <tr><td style="padding:3px 7px;">Fatal only ~1.4%</td><td style="padding:3px 7px;">Naive models predict majority class only</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Class weights</td><td style="padding:3px 7px;">Inverse-frequency weights on all models</td></tr>
+  <tr><td style="padding:3px 7px;">SMOTE</td><td style="padding:3px 7px;">Inside training fold only (LR, KNN); Fatal raised to ~10%</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Test set</td><td style="padding:3px 7px;">Unmodified — real-world distribution preserved</td></tr>
+  <tr><td style="padding:3px 7px;">Primary metrics</td><td style="padding:3px 7px;">Macro-F1 + Fatal Recall (target ≥ 0.50)</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 
 ## Model Fitting: Approach & Setup
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r model-overview}
 model_tbl <- tibble::tibble(
@@ -310,66 +332,63 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 ## Model Fitting: Logistic Regression
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-lr, fig.height=3.5}
-# TODO: [member name] — confusion matrix heatmap + coefficient plot or ROC curves
+# TODO: [member name] - confusion matrix heatmap + coefficient plot or ROC curves
 # Train on: df_train | CV: cv_ctrl_smote | Evaluate on: df_test
 ```
 
 ## Model Fitting: Decision Tree
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-dt, fig.height=3.5}
-# TODO: [member name] — rpart.plot tree diagram + confusion matrix heatmap
+# TODO: [member name] - rpart.plot tree diagram + confusion matrix heatmap
 # Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
 ```
 
 ## Model Fitting: Random Forest
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
-```{r results-rf, fig.height=3.5, out.width='48%', fig.show='hold'}
-knitr::include_graphics(c(
-  "plots/5_3_random_forest_variable_importance_top15.png",
-  "plots/5_3_random_forest_confusion_matrix.png"
-))
-```
-
-<div style="font-size:13px">
-| Metric | Value |
-|--------|-------|
-| OOB Error Rate | 18.4% |
-| Macro-F1 | 0.614 |
-| Fatal Recall | 0.144 |
-| Weighted F1 | 0.813 |
-| Kappa | 0.583 |
+<div style="display:flex; align-items:flex-start; gap:16px;">
+<div style="flex:0 0 54%;">
+<img src="plots/5_3_random_forest_variable_importance_top15.png" style="width:100%; height:auto;"/>
 </div>
-
-> **Top predictors:** Street lighting, LGA, Day of week, Month of crash, Key TU type — environmental context dominates over vehicle type.
+<div style="flex:0 0 42%; text-align:center;">
+<img src="plots/5_3_random_forest_confusion_matrix.png" style="width:100%; height:auto;"/>
+<table style="font-size:12px; width:100%; border-collapse:collapse; margin-top:6px; text-align:left;">
+<thead><tr style="background:#2E74B5; color:white;">
+  <th style="padding:4px 8px;">Metric</th><th style="padding:4px 8px; text-align:right;">Value</th>
+</tr></thead>
+<tbody>
+  <tr><td style="padding:3px 8px;">OOB Error Rate</td><td style="padding:3px 8px; text-align:right;">18.4%</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px;">Macro-F1</td><td style="padding:3px 8px; text-align:right;">0.614</td></tr>
+  <tr><td style="padding:3px 8px; color:#d62728;"><b>Fatal Recall</b></td><td style="padding:3px 8px; text-align:right; color:#d62728;"><b>0.144</b></td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px;">Weighted F1</td><td style="padding:3px 8px; text-align:right;">0.813</td></tr>
+  <tr><td style="padding:3px 8px;">Kappa</td><td style="padding:3px 8px; text-align:right;">0.583</td></tr>
+</tbody>
+</table>
+<p style="font-size:11px; text-align:left; margin-top:6px;"><b>Top predictors:</b> Street lighting, LGA, Day of week, Month — environmental context dominates vehicle type.</p>
+</div>
+</div>
 
 ## Model Fitting: XGBoost
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-xgb, fig.height=3.5}
-# TODO: [member name] — variable importance (by Gain) + training loss curve + confusion matrix
+# TODO: [member name] - variable importance (by Gain) + training loss curve + confusion matrix
 # Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
 ```
 
 ## Model Fitting: KNN & Naive Bayes
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
 ```{r results-knn-nb, fig.height=3.5}
-# TODO: [member name] — k vs Macro-F1 curve (KNN) + side-by-side confusion matrices
+# TODO: [member name] - k vs Macro-F1 curve (KNN) + side-by-side confusion matrices
 # KNN: cv_ctrl_smote | NB: cv_ctrl_smote | Evaluate both on: df_test
 ```
 
 ## Model Improvement: Hyperparameter Tuning
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Improvement  \|  2 pts</small>
 
 ```{r slide-improvement}
 tuning_tbl <- tibble::tibble(
@@ -396,11 +415,10 @@ kable(tuning_tbl, booktabs = TRUE) %>%
   column_spec(1, bold = TRUE)
 ```
 
-> RF: `tuneRF` identified **mtry = 13** (default = 6) — Macro-F1 +0.020, Fatal Recall +0.037. OOB converges before 75 trees.
+> RF: `tuneRF` identified **mtry = 13** (default = 6) - Macro-F1 +0.020, Fatal Recall +0.037. OOB converges before 75 trees.
 
 ## Model Evaluation
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Evaluation  \|  2 pts</small>
 
 ```{r slide-evaluation}
 eval_tbl <- tibble::tibble(
@@ -410,7 +428,7 @@ eval_tbl <- tibble::tibble(
   `Fatal Recall` = c("TODO", "TODO", "0.181",     "TODO", "TODO", "TODO"),
   `Weighted F1`  = c("TODO", "TODO", "0.815",     "TODO", "TODO", "TODO"),
   `Kappa`        = c("TODO", "TODO", "0.590",     "TODO", "TODO", "TODO"),
-  `Meets Fatal Recall >= 0.50` = c("TODO", "TODO", "No (dev subsample)", "TODO", "TODO", "TODO")
+  `Meets Fatal Recall >= 0.50` = c("TODO", "TODO", "No", "TODO", "TODO", "TODO")
 )
 
 kable(eval_tbl, booktabs = TRUE, escape = FALSE) %>%
@@ -421,29 +439,24 @@ kable(eval_tbl, booktabs = TRUE, escape = FALSE) %>%
   column_spec(3, color = ifelse(eval_tbl$`Fatal Recall` == "TODO", "grey50", "#d62728"))
 ```
 
-> RF (tuned) leads on Macro-F1 among completed models. Fatal Recall below 0.50 threshold on 50% subsample — expected to improve on full training data for final submission.
-
 ## Model Selection
 
-<small style="color:#2E74B5">**Rubric criterion:** Model Selection  \|  2 pts</small>
 
 ```{r slide-selection}
-# TODO: [member name] — best model name, justification, top predictors from variable importance
+# TODO: [member name] - best model name, justification, top predictors from variable importance
 ```
 
 ## Final Results & Conclusion
 
-<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion  \|  2 pts</small>
 
 ```{r slide-conclusion}
-# TODO: [member name] — answer to RQ, key findings, practical implications for stakeholders
+# TODO: [member name] - answer to RQ, key findings, practical implications for stakeholders
 ```
 
 ## Reflection & Future Directions
 
-<small style="color:#2E74B5">**Rubric criterion:** Final Results & Conclusion  \|  2 pts (continued)</small>
 
 ```{r slide-reflection}
-# TODO: [member name] — limitations, future research directions
+# TODO: [member name] - limitations, future research directions
 ```
 
