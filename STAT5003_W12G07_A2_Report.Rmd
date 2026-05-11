@@ -331,7 +331,7 @@ weighted_f1_rf  <- weighted.mean(cm_rf$byClass[, "F1"],
 kappa_rf        <- cm_rf$overall["Kappa"]
 
 cat(sprintf(
-  "=== Random Forest — Test Set Metrics ===\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  "   Random Forest —  Test Set Metrics\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
   model_rf$err.rate[100, "OOB"], macro_f1_rf, fatal_recall_rf, weighted_f1_rf, kappa_rf
 ))
 
@@ -341,7 +341,7 @@ p_rf_cm <- as.data.frame(cm_rf$table) %>%
   geom_tile(colour = "white") +
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
   scale_fill_gradient(low = "white", high = "#1F4E79") +
-  labs(title = "Random Forest — Confusion Matrix (Test Set)",
+  labs(title = "Random Forest : Confusion Matrix (Test Set)",
        subtitle = paste0("Fatal Recall: ", round(fatal_recall_rf, 3),
                          "  |  Macro-F1: ", round(macro_f1_rf, 3))) +
   theme_minimal(base_size = 12) +
@@ -349,7 +349,7 @@ p_rf_cm <- as.data.frame(cm_rf$table) %>%
 print(p_rf_cm)
 ggsave("plots/5_3_random_forest_confusion_matrix.png", p_rf_cm, width = 7, height = 5, dpi = 150)
 
-# Variable importance (top 15) — MeanDecreaseAccuracy across all classes
+# Variable importance (top 15) : MeanDecreaseAccuracy across all classes
 imp_df <- as.data.frame(importance(model_rf, type = 1))
 imp_df$Feature <- rownames(imp_df)
 p_rf_varimp <- imp_df %>%
@@ -358,7 +358,7 @@ p_rf_varimp <- imp_df %>%
   ggplot(aes(x = reorder(Feature, MeanDecreaseAccuracy), y = MeanDecreaseAccuracy)) +
   geom_col(fill = "#2E74B5") +
   coord_flip() +
-  labs(title = "Random Forest — Variable Importance (Top 15)",
+  labs(title = "Random Forest : Variable Importance (Top 15)",
        x = NULL, y = "Mean Decrease in Accuracy") +
   theme_minimal(base_size = 12)
 print(p_rf_varimp)
@@ -434,7 +434,7 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 
 The primary hyperparameter for Random Forest is `mtry` — the number of candidate variables randomly sampled at each split. The default value of $\lfloor\sqrt{p}\rfloor$ is not necessarily optimal, especially for imbalanced multi-class problems where Fatal examples are sparse. `tuneRF()` was used to search over a sequence of `mtry` values via OOB error, using a 20,000-row subsample of the training features to keep search time tractable (OOB rankings stabilise at far smaller sample sizes than the full dataset).
 
-```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
+```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='33%'}
 # Use a 20k-row subsample of rf_x_train to search mtry quickly via tuneRF().
 # Finding the best mtry doesn't need the full dataset — OOB rankings are stable
 # on a representative subsample. Final model is still fit on the full training set.
@@ -489,11 +489,31 @@ weighted_f1_tuned  <- weighted.mean(cm_rf_tuned$byClass[, "F1"],
 kappa_tuned        <- cm_rf_tuned$overall["Kappa"]
 
 cat(sprintf(
-  "    RF Tuned —  Test Set Metrics \nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  "    RF Tuned  —  Test Set Metrics \nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
   model_rf_tuned$err.rate[100, "OOB"], macro_f1_tuned, fatal_recall_tuned, weighted_f1_tuned, kappa_tuned
 ))
 
-# Confusion matrix heatmap - tuned model
+# Before / After comparison table
+data.frame(
+  Model          = c("RF : default mtry", "RF : tuned mtry"),
+  mtry           = c(floor(sqrt(ncol(rf_x_train))), best_mtry),
+  `Macro-F1`     = round(c(macro_f1_rf,    macro_f1_tuned),    4),
+  `Fatal Recall` = round(c(fatal_recall_rf, fatal_recall_tuned), 4),
+  check.names = FALSE
+) %>% knitr::kable(caption = "Random Forest — Before vs After Tuning")
+
+# Plot 2: OOB error vs ntree convergence curve
+p_rf_oob <- data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
+           OOB   = model_rf_tuned$err.rate[, "OOB"]) %>%
+  ggplot(aes(x = ntree, y = OOB)) +
+  geom_line(colour = "#2E74B5") +
+  labs(title = "Random Forest : OOB Error vs Number of Trees (tuned mtry)",
+       x = "Number of trees", y = "OOB error rate") +
+  theme_minimal(base_size = 12)
+print(p_rf_oob)
+ggsave("plots/6_3_random_forest_oob_convergence.png", p_rf_oob, width = 7, height = 5, dpi = 150)
+
+# Plot 3: Confusion matrix heatmap — tuned model (last in row)
 p_rf_tuned_cm <- as.data.frame(cm_rf_tuned$table) %>%
   ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
   geom_tile(colour = "white") +
@@ -506,29 +526,9 @@ p_rf_tuned_cm <- as.data.frame(cm_rf_tuned$table) %>%
   theme(legend.position = "none")
 print(p_rf_tuned_cm)
 ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, width = 7, height = 5, dpi = 150)
-
-# Before / After comparison table
-data.frame(
-  Model          = c("RF — default mtry", "RF — tuned mtry"),
-  mtry           = c(floor(sqrt(ncol(rf_x_train))), best_mtry),
-  `Macro-F1`     = round(c(macro_f1_rf,    macro_f1_tuned),    4),
-  `Fatal Recall` = round(c(fatal_recall_rf, fatal_recall_tuned), 4),
-  check.names = FALSE
-) %>% knitr::kable(caption = "Random Forest : Before vs After Tuning")
-
-# OOB error vs ntree curve (convergence check)
-p_rf_oob <- data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
-           OOB   = model_rf_tuned$err.rate[, "OOB"]) %>%
-  ggplot(aes(x = ntree, y = OOB)) +
-  geom_line(colour = "#2E74B5") +
-  labs(title = "Random Forest : OOB Error vs Number of Trees (tuned mtry)",
-       x = "Number of trees", y = "OOB error rate") +
-  theme_minimal(base_size = 12)
-print(p_rf_oob)
-ggsave("plots/6_3_random_forest_oob_convergence.png", p_rf_oob, width = 7, height = 5, dpi = 150)
 ```
 
-`tuneRF` identified **mtry = 13** as optimal, more than double the default of 6. Retraining with this value yielded consistent improvements across every metric: OOB error dropped from 18.4% to 18.1%, Macro-F1 increased from 0.614 to 0.634, Fatal Recall improved from 0.144 to 0.181, Weighted F1 from 0.813 to 0.815, and Kappa from 0.583 to 0.590. The OOB convergence curve confirms that 100 trees is sufficient — the OOB error stabilizes before 75 trees, indicating no benefit from growing additional trees. The improvement in Fatal Recall (+0.037) is particularly meaningful: a larger `mtry` forces each tree to consider more variables per split, which helps the ensemble find the rare feature combinations that characterize fatal crashes rather than defaulting to the majority Injury signal.
+`tuneRF` identified **mtry = 13** as optimal, more than double the default of 6. Retraining with this value yielded consistent improvements across every metric: OOB error dropped from 18.4% to 18.1%, Macro-F1 increased from 0.614 to 0.634, Fatal Recall improved from 0.144 to 0.181, Weighted F1 from 0.813 to 0.815, and Kappa from 0.583 to 0.590. The OOB convergence curve confirms that 100 trees is sufficient — the OOB error stabilises before 75 trees, indicating no benefit from growing additional trees. The improvement in Fatal Recall (+0.037) is particularly meaningful: a larger `mtry` forces each tree to consider more variables per split, which helps the ensemble find the rare feature combinations that characterise fatal crashes rather than defaulting to the majority Injury signal. The confusion matrix shows that the tuned model correctly identified 68 fatal crashes (up from 54 with the default `mtry`), with the majority of misclassifications falling into Injury (302) rather than Non-casualty (6) — a safer failure mode, as fatal crashes are at least flagged as high-severity events.
 
 #### 6.4 XGBoost - Improvement
 
