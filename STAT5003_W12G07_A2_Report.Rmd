@@ -334,34 +334,208 @@ Six models selected to cover a range of complexity and interpretability. All imp
 
 #### 5.1 Multinomial Logistic Regression
 
-```{r model-lr, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.1)
-# Use DEFAULT hyperparameters — do NOT tune here
-# method = "multinom" | preProcess = "nzv" | CV: cv_ctrl_smote | Weights: class_weights
-# Produce: confusionMatrix() on df_test, heatmap, Macro-F1 / Fatal Recall / Weighted F1 / Kappa
-# Save metrics as: macro_f1_lr, fatal_recall_lr (needed for §6.1 before/after table)
-# Save plots: p_lr_cm, p_lr_coef
-#   ggsave("plots/5_1_logistic_regression_confusion_matrix.png", p_lr_cm,   width=7, height=5, dpi=150)
-#   ggsave("plots/5_1_logistic_regression_coefficients.png",     p_lr_coef, width=7, height=5, dpi=150)
+A Multinomial Logistic Regression model was fitted as an interpretable parametric baseline using the multinom function from the nnet package via the caret framework. To ensure a fair comparison across all algorithms in §7, the model was trained on the identical stratified 50% subsample (df_train_sub, ~55,000 rows). Given the severe class imbalance, Synthetic Minority Over-sampling Technique (SMOTE) was applied. Crucially, SMOTE was configured strictly within the 5-fold cross-validation resampling loops (cv_ctrl_smote) to prevent data leakage and ensure that synthetic Fatal examples were never evaluated in the validation holdouts. A zero-variance filter (nzv) was also applied to drop dummy variables with near-zero variance that could cause rank deficiencies.
 
+```{r model-lr, message=FALSE, warning=FALSE}
+# Multinomial Logistic Regression — baseline fit only (no tuning here)
+# Logistic uses a local model-specific cleaned dataset so that we do not need to
+# modify the shared preprocessing pipeline written for the whole group.
+# Class imbalance is handled via SMOTE inside CV folds.
+set.seed(42)
+
+train_lr <- df_train_sub %>%
+  rename_with(~ make.names(., unique = TRUE)) %>%
+  select(-any_of("crash_hour"))
+
+test_lr <- df_test %>%
+  rename_with(~ make.names(., unique = TRUE)) %>%
+  select(-any_of("crash_hour"))
+
+model_lr <- train(
+  Degree.of.crash ~ ., 
+  data = train_lr,
+  method = "multinom",
+  trControl = cv_ctrl_smote,
+  preProcess = "nzv",
+  metric = "Mean_F1",
+  trace = FALSE,
+  MaxNWts = 20000
+)
+
+print(model_lr$results)
+
+pred_lr <- predict(model_lr, newdata = test_lr)
+cm_lr   <- confusionMatrix(pred_lr, test_lr$Degree.of.crash)
+
+fatal_recall_lr <- as.numeric(cm_lr$byClass["Class: Fatal", "Recall"])
+f1_lr_vec <- setNames(cm_lr$byClass[, "F1"], gsub("Class: ", "", rownames(cm_lr$byClass)))
+test_props_lr <- prop.table(table(test_lr$Degree.of.crash))
+macro_f1_lr <- mean(f1_lr_vec, na.rm = TRUE)
+weighted_f1_lr <- weighted.mean(f1_lr_vec[names(test_props_lr)], test_props_lr, na.rm = TRUE)
+kappa_lr <- as.numeric(cm_lr$overall["Kappa"])
+
+cat(sprintf(
+  "   Logistic Regression — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  macro_f1_lr, fatal_recall_lr, weighted_f1_lr, kappa_lr
+))
+
+# Confusion matrix heatmap
+p_lr_cm <- as.data.frame(cm_lr$table) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "#1F4E79") +
+  labs(
+    title = "Logistic Regression — Confusion Matrix (Test Set)",
+    subtitle = paste0("Fatal Recall: ", round(fatal_recall_lr, 3),
+                      "  |  Macro-F1: ", round(macro_f1_lr, 3))
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+print(p_lr_cm)
+ggsave("plots/5_1_logistic_regression_confusion_matrix.png", p_lr_cm, width = 7, height = 5, dpi = 150)
+
+# Coefficient plot — top 15 absolute coefficients across non-reference classes
+coef_lr <- coef(model_lr$finalModel)
+
+if (is.null(dim(coef_lr))) {
+  coef_lr <- matrix(coef_lr, nrow = 1)
+  rownames(coef_lr) <- "Non-reference class"
+}
+
+coef_lr_df <- as.data.frame(as.table(coef_lr))
+if (ncol(coef_lr_df) == 3) {
+  names(coef_lr_df) <- c("Class", "Feature", "Coefficient")
+} else if (ncol(coef_lr_df) == 2) {
+  names(coef_lr_df) <- c("Feature", "Coefficient")
+  coef_lr_df$Class <- "Non-reference class"
+  coef_lr_df <- coef_lr_df %>% select(Class, Feature, Coefficient)
+}
+
+coef_lr_df <- coef_lr_df %>%
+  filter(Feature != "(Intercept)") %>%
+  mutate(abs_coef = abs(as.numeric(Coefficient))) %>%
+  arrange(desc(abs_coef)) %>%
+  slice_head(n = 15)
+
+p_lr_coef <- ggplot(coef_lr_df, aes(x = reorder(Feature, abs_coef), y = as.numeric(Coefficient), fill = Class)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Logistic Regression — Largest Coefficients (Top 15)",
+    x = NULL,
+    y = "Coefficient (log-odds)"
+  ) +
+  theme_minimal(base_size = 12)
+print(p_lr_coef)
+ggsave("plots/5_1_logistic_regression_coefficients.png", p_lr_coef, width = 7, height = 5, dpi = 150)
 ```
+
+The baseline Logistic Regression achieved a Macro-F1 of 0.4395, a Weighted F1 of 0.5914, and Cohen's Kappa of 0.2724 on the test set. Most importantly, the Fatal Recall reached 0.7739, safely exceeding the strict 0.50 target threshold. This high recall indicates that the in-fold SMOTE strategy effectively forced the model to heavily penalize minority-class misclassifications, capturing the vast majority of fatal incidents at the expected cost of an increased false-positive rate (Precision-Recall trade-off). Analysis of the largest standardized coefficients reveals that the presence of Pedestrians, Night-time conditions, and Country non-urban environments exert the strongest positive influence on predicting a Fatal outcome, aligning perfectly with the clinical intuition that vulnerable road users and poor visibility in high-speed zones drastically elevate crash severity.
 
 #### 5.2 Decision Tree
 
-```{r model-dt, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.2)
-# Use DEFAULT hyperparameters — do NOT tune here
-# method = "rpart" | CV: cv_ctrl | Weights: class_weights (via weights argument)
-# Produce: rpart.plot diagram, confusionMatrix() on df_test, heatmap, 4 metrics
-# Save metrics as: macro_f1_dt, fatal_recall_dt (needed for §6.2 before/after table)
-# Save plots: p_dt_cm, p_dt_tree
-#   ggsave("plots/5_2_decision_tree_confusion_matrix.png", p_dt_cm, width=7, height=5, dpi=150)
-#   For rpart.plot (base R graphic, not ggplot):
-#   png("plots/5_2_decision_tree_diagram.png", width=1050, height=700, res=150)
-#   rpart.plot(model_dt$finalModel, ...)
-#   dev.off()
+A Decision Tree (CART) was fitted using the rpart package to provide non-linear, hierarchical if-then rules that are easily interpretable by non-technical stakeholders. To bypass the computational bottleneck associated with rpart evaluating high-cardinality categorical splits in a multi-class setting, the feature space was explicitly one-hot encoded using dummyVars prior to training. The model was trained on the standard 50% subsample (df_train_sub) with the default complexity parameter (cp = 0.01). Instead of SMOTE, class imbalance for the tree was addressed algorithmically by passing inverse-frequency class weights directly to the weights argument, ensuring the splitting criteria actively prioritized node purity for the rare Fatal class.
 
+```{r model-dt, message=FALSE, warning=FALSE}
+# Decision Tree — baseline fit only (no tuning here)
+# Direct rpart() route is used here instead of caret::train(method = "rpart")
+# because caret's formula/grid interface proved unstable with this dataset's
+# original column naming + severe class imbalance. We only clean data locally
+# inside this DT section, without changing the shared preprocessing pipeline.
+# Decision Tree — baseline fit only (with One-Hot Encoding fix)
+set.seed(42)
+
+# 1. First standardize column names with `make.names` to prevent `dummyVars` from failing to locate columns due to spaces.
+train_dt_clean <- df_train_sub %>%
+  rename_with(~ make.names(., unique = TRUE)) %>%
+  select(-any_of("crash_hour"))
+
+test_dt_clean <- df_test %>%
+  rename_with(~ make.names(., unique = TRUE)) %>%
+  select(-any_of("crash_hour"))
+
+# 2. Establish One-Hot encoding
+dummy_model <- dummyVars(Degree.of.crash ~ ., data = train_dt_clean)
+
+# 3. Transform the training set
+train_dt_x <- as.data.frame(predict(dummy_model, newdata = train_dt_clean))
+train_dt <- cbind(train_dt_x, Degree.of.crash = train_dt_clean$Degree.of.crash)
+
+# 4. Transform the test set and concatenate back the target variable
+test_dt_x <- as.data.frame(predict(dummy_model, newdata = test_dt_clean))
+test_dt <- cbind(test_dt_x, Degree.of.crash = test_dt_clean$Degree.of.crash)
+
+# 5. Align weights
+dt_weights <- as.numeric(class_weights[as.character(train_dt$Degree.of.crash)])
+
+# 6. Train the decision tree
+model_dt <- rpart(
+  Degree.of.crash ~ .,
+  data = train_dt,
+  method = "class",
+  weights = dt_weights,
+  control = rpart.control(cp = 0.01, xval = 10)
+)
+
+pred_dt <- predict(model_dt, newdata = test_dt, type = "class")
+cm_dt   <- confusionMatrix(pred_dt, test_dt$Degree.of.crash)
+
+fatal_recall_dt <- as.numeric(cm_dt$byClass["Class: Fatal", "Recall"])
+f1_dt_vec <- setNames(cm_dt$byClass[, "F1"], gsub("Class: ", "", rownames(cm_dt$byClass)))
+test_props_dt <- prop.table(table(test_dt$Degree.of.crash))
+macro_f1_dt <- mean(f1_dt_vec, na.rm = TRUE)
+weighted_f1_dt <- weighted.mean(f1_dt_vec[names(test_props_dt)], test_props_dt, na.rm = TRUE)
+kappa_dt <- as.numeric(cm_dt$overall["Kappa"])
+
+cat(sprintf(
+  "   Decision Tree — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  macro_f1_dt, fatal_recall_dt, weighted_f1_dt, kappa_dt
+))
+
+printcp(model_dt)
+
+# Tree diagram — use a simpler, more robust plotting configuration
+png("plots/5_2_decision_tree_diagram.png", width = 1200, height = 800, res = 150)
+rpart.plot(
+  model_dt,
+  type = 2,
+  extra = 1,
+  under = TRUE,
+  fallen.leaves = TRUE,
+  cex = 0.7,
+  main = "Decision Tree Diagram"
+)
+dev.off()
+
+rpart.plot(
+  model_dt,
+  type = 2,
+  extra = 1,
+  under = TRUE,
+  fallen.leaves = TRUE,
+  cex = 0.7,
+  main = "Decision Tree Diagram"
+)
+
+# Confusion matrix heatmap
+p_dt_cm <- as.data.frame(cm_dt$table) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "#1F4E79") +
+  labs(
+    title = "Decision Tree — Confusion Matrix (Test Set)",
+    subtitle = paste0("Fatal Recall: ", round(fatal_recall_dt, 3),
+                      "  |  Macro-F1: ", round(macro_f1_dt, 3))
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+print(p_dt_cm)
+ggsave("plots/5_2_decision_tree_confusion_matrix.png", p_dt_cm, width = 7, height = 5, dpi = 150)
 ```
+
+The Decision Tree achieved a Macro-F1 of 0.4290, a Weighted F1 of 0.5837, and a Kappa of 0.2430. Similar to the logistic baseline, the model successfully satisfied the primary safety constraint, yielding a strong Fatal Recall of 0.7287. The tree's hierarchical structure acts as an intrinsic feature selector: the plot reveals that Street lighting, Distance, and the involvement of vulnerable units (Motorcycles and Pedestrians) dictate the primary root and child splits. This explicit segmentation confirms that severe crashes are not randomly distributed but are heavily concentrated in specific structural scenarios—namely, unprotected traffic units navigating poorly lit or remote environmental contexts.
 
 #### 5.3 Random Forest
 
@@ -491,21 +665,149 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 
 #### 6.1 Multinomial Logistic Regression - Improvement
 
+The primary hyperparameter for the Multinomial Logistic Regression is decay, which applies an L2 regularization penalty to the model's coefficients. Regularization is particularly critical here to prevent the model from overfitting to the synthetic minority samples generated by SMOTE within the cross-validation folds. A tuning grid was evaluated over a sequence of penalty values (decay $\in \{0, 0.001, 0.01, 0.1\}$) via 5-fold cross-validation.
+
 ```{r improve-lr, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.1)
-# Tune: decay via tuneGrid = expand.grid(decay = c(0, 0.001, 0.01, 0.1))
-# Plot: decay vs Mean_F1 curve from model_lr_tuned$results
-# Table: before/after using macro_f1_lr / fatal_recall_lr from §5.1 vs tuned values
+# Multinomial Logistic Regression — Improvement
+set.seed(42)
+
+# 1. Define the tuning grid
+lr_grid <- expand.grid(decay = c(0, 0.001, 0.01, 0.1))
+
+# 2. Model Training and Tuning (Based on Section 5.1)
+model_lr_tuned <- train(
+  Degree.of.crash ~ ., 
+  data = train_lr,
+  method = "multinom",
+  trControl = cv_ctrl_smote,
+  tuneGrid = lr_grid,
+  preProcess = "nzv",
+  metric = "Mean_F1",
+  trace = FALSE,
+  MaxNWts = 20000
+)
+
+best_decay <- model_lr_tuned$bestTune$decay
+cat("Best decay parameter from tuning:", best_decay, "\n")
+
+# 3. Plot the decay vs Mean_F1 curve
+# transform decay into factor to ensure the uniform distribution of the horizontal axis
+p_lr_tune <- ggplot(model_lr_tuned$results, aes(x = as.factor(decay), y = Mean_F1, group = 1)) +
+  geom_line(colour = "#2E74B5", linewidth = 1) +
+  geom_point(size = 3, colour = "#2E74B5") +
+  geom_vline(xintercept = which(lr_grid$decay == best_decay), linetype = "dashed", colour = "#C0392B") +
+  annotate("text", x = which(lr_grid$decay == best_decay), y = max(model_lr_tuned$results$Mean_F1),
+           label = paste("Best decay =", best_decay),
+           hjust = -0.2, colour = "#C0392B", size = 3.5) +
+  labs(
+    title = "Logistic Regression — Tuning: decay vs Macro-F1",
+    x = "Weight Decay (L2 Regularization Penalty)",
+    y = "Cross-Validated Macro-F1"
+  ) +
+  theme_minimal(base_size = 12)
+
+print(p_lr_tune)
+ggsave("plots/6_1_logistic_regression_decay_tuning_curve.png", p_lr_tune, width = 7, height = 5, dpi = 150)
+
+# 4. Make predictions on the test set and calculate new metrics
+pred_lr_tuned <- predict(model_lr_tuned, newdata = test_lr)
+cm_lr_tuned <- confusionMatrix(pred_lr_tuned, test_lr$Degree.of.crash)
+
+fatal_recall_lr_tuned <- as.numeric(cm_lr_tuned$byClass["Class: Fatal", "Recall"])
+f1_lr_tuned_vec <- setNames(cm_lr_tuned$byClass[, "F1"], gsub("Class: ", "", rownames(cm_lr_tuned$byClass)))
+macro_f1_lr_tuned <- mean(f1_lr_tuned_vec, na.rm = TRUE)
+
+cat(sprintf(
+  "   Logistic Regression (Tuned) — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\n",
+  macro_f1_lr_tuned, fatal_recall_lr_tuned
+))
+
+# 5. Before / After Comparison Table
+before_after_lr <- data.frame(
+  Model = c("LR: default decay (0)", paste0("LR: tuned decay (", best_decay, ")")),
+  `Macro-F1` = round(c(macro_f1_lr, macro_f1_lr_tuned), 4),
+  `Fatal Recall` = round(c(fatal_recall_lr, fatal_recall_lr_tuned), 4),
+  check.names = FALSE
+)
+knitr::kable(before_after_lr, caption = "Logistic Regression — Before vs After Tuning")
 ```
+
+The tuning process identified decay = 0.01 as the optimal threshold, maximizing the cross-validated Macro-F1 score. Retraining the model with this moderate penalty yielded a subtle but important shift in the test set metrics: Macro-F1 improved from 0.4395 to 0.4417, while Fatal Recall decreased slightly from 0.7739 to 0.7606. This reflects a classic precision-recall trade-off. Without regularization (decay = 0), the model aggressively predicted the Fatal class to minimize the SMOTE-induced loss, leading to a high recall but an excess of false positives. Applying the L2 penalty constrained these extreme weights, forcing the model to be slightly more conservative. This reduced false alarms and improved the overall Macro-F1 balance. Given that the tuned Fatal Recall of 0.7606 still robustly exceeds the 0.50 safety constraint, this regularized model demonstrates superior generalization and replaces the baseline.
 
 #### 6.2 Decision Tree - Improvement
 
+To optimize the Decision Tree, Cost-Complexity Pruning was applied to control the tree's depth and mitigate overfitting. The baseline model was artificially constrained by the default complexity parameter (cp = 0.01). To determine the true optimal architecture, a deeper tree was initially grown with a relaxed threshold (cp = 0.001), and the cross-validation error (xerror) was tracked across varying tree sizes. Minimization of the xerror identified an optimal split threshold of cp = 0.00115.
+
 ```{r improve-dt, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.2)
-# Tune: cp via tuneGrid = expand.grid(cp = seq(0.0001, 0.01, by = 0.001))
-# Plot: cp vs Mean_F1 curve from model_dt_tuned$results (or plotcp on standalone rpart fit)
-# Table: before/after using macro_f1_dt / fatal_recall_dt from §5.2 vs tuned values
+# Decision Tree improvement — tune complexity by pruning via CP table
+set.seed(42)
+
+# 1. First grow a deeper tree (relax the cp parameter to 0.001) to find the optimal split points
+model_dt_deep <- rpart(
+  Degree.of.crash ~ .,
+  data = train_dt,
+  method = "class",
+  weights = dt_weights,
+  control = rpart.control(cp = 0.001, xval = 5) # xval=5 保持与小组统一定义的 5-fold CV 一致
+)
+
+# 2. Extract the CP with minimum xerror from the deep tree
+best_cp <- model_dt_deep$cptable[which.min(model_dt_deep$cptable[, "xerror"]), "CP"]
+cat("Best cp from xerror minimisation:", best_cp, "\n")
+
+# 3. Plot and save CP tuning graph
+png("plots/6_2_decision_tree_cp_plot.png", width = 1000, height = 700, res = 150)
+plotcp(model_dt_deep, main = "Decision Tree — CP Tuning Plot")
+text(x = best_cp, y = min(model_dt_deep$cptable[, "xerror"]), labels = paste("best cp =", signif(best_cp, 3)), pos = 4, cex = 0.8)
+dev.off()
+
+plotcp(model_dt_deep, main = "Decision Tree — CP Tuning Plot")
+
+# 4. 用找到的最优 CP 对深树进行剪枝
+model_dt_tuned <- prune(model_dt_deep, cp = best_cp)
+
+# 5. 在测试集上评估剪枝后的模型
+pred_dt_tuned <- predict(model_dt_tuned, newdata = test_dt, type = "class")
+cm_dt_tuned <- confusionMatrix(pred_dt_tuned, test_dt$Degree.of.crash)
+
+fatal_recall_dt_tuned <- as.numeric(cm_dt_tuned$byClass["Class: Fatal", "Recall"])
+f1_dt_tuned_vec <- setNames(cm_dt_tuned$byClass[, "F1"], gsub("Class: ", "", rownames(cm_dt_tuned$byClass)))
+macro_f1_dt_tuned <- mean(f1_dt_tuned_vec, na.rm = TRUE)
+weighted_f1_dt_tuned <- weighted.mean(f1_dt_tuned_vec[names(test_props_dt)], test_props_dt, na.rm = TRUE)
+kappa_dt_tuned <- as.numeric(cm_dt_tuned$overall["Kappa"])
+
+cat(sprintf(
+  "   Decision Tree (Tuned) — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  macro_f1_dt_tuned, fatal_recall_dt_tuned, weighted_f1_dt_tuned, kappa_dt_tuned
+))
+
+# 6. Generate Before/After comparison table
+before_after_dt <- data.frame(
+  Model = c("DT: default cp (0.01)", paste0("DT: tuned cp (", signif(best_cp, 3), ")")),
+  `Macro-F1` = round(c(macro_f1_dt, macro_f1_dt_tuned), 4),
+  `Fatal Recall` = round(c(fatal_recall_dt, fatal_recall_dt_tuned), 4),
+  check.names = FALSE
+)
+knitr::kable(before_after_dt, caption = "Decision Tree — Before vs After Pruning")
+
+# 7. Plot Tuned Confusion Matrix heatmap
+p_dt_tuned_cm <- as.data.frame(cm_dt_tuned$table) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = Freq), size = 6, fontface = "bold") +
+  scale_fill_gradient(low = "white", high = "#1F4E79") +
+  labs(
+    title = "Decision Tree (Tuned) — Confusion Matrix (Test Set)",
+    subtitle = paste0("Fatal Recall: ", round(fatal_recall_dt_tuned, 3),
+                      "  |  Macro-F1: ", round(macro_f1_dt_tuned, 3))
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+print(p_dt_tuned_cm)
+ggsave("plots/6_2_decision_tree_tuned_confusion_matrix.png", p_dt_tuned_cm, width = 7, height = 5, dpi = 150)
 ```
+
+Evaluating this deeper, tuned tree on the test set revealed a significant divergence in performance: Fatal Recall surged to an impressive 0.8271, but the primary metric, Macro-F1, dropped from 0.4290 to 0.4068. This occurs because the deeper tree captures more granular, complex rules. When combined with the heavy inverse-frequency class weights used during training, the deeper tree became hyper-sensitive to the minority class. While this hyper-sensitivity successfully captured nearly 83% of all fatal crashes, it generated a disproportionate number of false positives (misclassifying severe injuries as fatal), which severely penalized overall precision. Because the project's primary objective is to maximize Macro-F1 subject to a Fatal Recall $\geq$ 0.50, the shallower baseline model (cp = 0.01) is strictly preferred. It offers a more balanced decision boundary, achieving a higher Macro-F1 while comfortably satisfying the safety constraint.
 
 #### 6.3 Random Forest - Improvement
 
