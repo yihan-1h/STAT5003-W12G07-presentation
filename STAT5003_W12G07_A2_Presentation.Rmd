@@ -303,30 +303,21 @@ df_raw %>%
 ## Model Fitting: Approach & Setup
 
 
-```{r model-overview}
-model_tbl <- tibble::tibble(
-  Model              = c("Multinomial Logistic Regression", "Decision Tree",
-                         "Random Forest", "XGBoost",
-                         "K-Nearest Neighbours", "Naive Bayes"),
-  `R package`        = c("nnet", "rpart", "randomForest", "xgboost", "kknn", "e1071"),
-  `Why chosen`       = c(
-    "Interpretable baseline; log-odds show predictor direction",
-    "Fully interpretable decision rules; native categorical handling",
-    "Ensemble; robust to noise; provides variable importance",
-    "Gradient boosting; typically strongest on tabular data",
-    "Non-parametric; captures local structure without assumptions",
-    "Probabilistic baseline; reveals feature independence violations"
-  ),
-  `Imbalance strategy` = c("Class weights + SMOTE", "Class weights",
-                            "Class weights", "scale_pos_weight",
-                            "Class weights + SMOTE", "Class prior")
-)
-kable(model_tbl, booktabs = TRUE) %>%
-  kable_styling(full_width = TRUE, font_size = 14) %>%
-  column_spec(1, bold = TRUE, width = "6em") %>%
-  column_spec(3, width = "18em") %>%
-  row_spec(0, bold = TRUE, background = "#2E74B5", color = "white")
-```
+We implemented six diverse classification models to balance interpretability and predictive power. All models were trained on the same stratified 50% subsample ($n \approx 55,000$) to ensure fair comparison.
+
+| Model | R Package | Imbalance Strategy | Primary Hyperparameter |
+|:---|:---|:---|:---|
+| **Multinomial LR** | `nnet` | SMOTE (inside CV) | `decay` (L2 Penalty) |
+| **Decision Tree** | `rpart` | Class Weights | `cp` (Complexity) |
+| **Random Forest** | `randomForest` | Class Weights | `mtry` |
+| **XGBoost** | `xgboost` | SMOTE / Weights | `nrounds`, `max_depth` |
+| **KNN** | `kknn` | SMOTE (inside CV) | `k` (Neighbors) |
+| **Naive Bayes** | `naive_bayes` | SMOTE (inside CV) | `laplace`, `usekernel` |
+
+**Validation Strategy:**
+- [cite_start]**Primary Metric:** Macro-F1 (robust to class imbalance)[cite: 14].
+- [cite_start]**Constraint:** Fatal Recall $\geq$ 0.50 (safety-first approach)[cite: 50].
+- [cite_start]**Method:** 5-fold Cross-Validation (OOB for Random Forest)[cite: 49].
 
 *All models trained via `caret` with 5-fold CV. Primary metric: **Macro-F1**. Hard constraint: **Fatal Recall ≥ 0.50**.*
 
