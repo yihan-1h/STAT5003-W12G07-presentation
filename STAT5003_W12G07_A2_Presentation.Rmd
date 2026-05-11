@@ -2,7 +2,7 @@
 title: "NSW Road Crash Severity Prediction"
 subtitle: "STAT5003 — Group 07, Workshop 12"
 author: "Sanskar | Robert | Haipeng | Chen | Yihan"
-date: "May 2026"
+date: "21 May 2026"
 output:
   ioslides_presentation:
     widescreen: true
@@ -55,7 +55,7 @@ df_raw <- df_raw %>%
 | **Emergency Responders** | Faster, evidence-based resource allocation |
 | **Policymakers & Insurers** | Precise policy and pricing decisions |
 
-## Dataset Overview
+## EDA & Data Understanding: Dataset Overview
 
 ```{r dataset-overview-robert, echo=FALSE, message=FALSE, warning=FALSE}
 total_records <- nrow(df_raw)
@@ -107,7 +107,7 @@ flextable(overview) |>
   autofit()
 ```
 
-## Class Imbalance
+## EDA & Data Understanding: Class Imbalance
 
 ```{r class-imbalance-robert, echo=FALSE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4}
 
@@ -143,9 +143,9 @@ ggplot(class_dist,
   theme(legend.position = "none")
 ```
 
-> ⚠️ **Fatal crashes (~1.4%) are severely underrepresented**  
-> → SMOTE applied **inside training fold only**  
-> → Primary metrics: **Macro-F1** and **Fatal Recall (≥ 0.50)**
+>  **Fatal crashes (~1.4%) are severely underrepresented**  
+>  SMOTE applied **inside training fold only**  
+>  Primary metrics: **Macro-F1** and **Fatal Recall (≥ 0.50)**
 ## EDA & Data Understanding: Dataset Overview
 
 <small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
@@ -154,37 +154,87 @@ ggplot(class_dist,
 # TODO: [member name] — dataset summary table (source, records, variables, target, date range)
 ```
 
-## EDA & Data Understanding: Class Imbalance
-
-<small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
-
-```{r slide-imbalance, fig.height=3.5}
-# TODO: [member name] — bar chart of Fatal / Injury / Non-casualty proportions
-```
-
 ## EDA & Data Understanding: Speed vs Severity
 
 <small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-speed, fig.height=3.5}
-# TODO: [member name] — stacked bar chart of severity proportion by speed limit band
+speed_levels <- c("10 km/h","20 km/h","30 km/h","40 km/h","50 km/h",
+                  "60 km/h","70 km/h","80 km/h","90 km/h","100 km/h","110 km/h")
+
+df_raw %>%
+  filter(`Speed limit` %in% speed_levels) %>%
+  mutate(`Speed limit` = factor(`Speed limit`, levels = speed_levels)) %>%
+  count(`Speed limit`, severity) %>%
+  group_by(`Speed limit`) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = `Speed limit`, y = prop, fill = severity)) +
+  geom_col(position = "stack") +
+  geom_hline(yintercept = 0.014, linetype = "dashed", colour = "white", linewidth = 0.8) +
+  scale_fill_manual(values = c("Fatal" = "#d62728", "Injury" = "#ff7f0e", "Non-casualty" = "#2ca02c")) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(title = "Crash Severity Proportion by Speed Limit",
+       subtitle = "Fatal proportion rises sharply at 100-110 km/h  |  dashed line = overall Fatal baseline (~1.4%)",
+       x = "Speed Limit", y = "Proportion of Crashes", fill = "Severity") +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right")
 ```
+
+> **Key finding:** Fatal proportion doubles at 100 km/h and triples at 110 km/h relative to 50 km/h zones — directly motivates `speed_band` feature engineering.
 
 ## EDA & Data Understanding: High-Risk Scenarios
 
 <small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
-```{r slide-highrisk, fig.height=3.5}
-# TODO: [member name] — fatal rate by speed band and lighting condition
+```{r slide-highrisk, fig.height=3.8}
+risk_table <- df_raw %>%
+  filter(!is.na(`Speed limit`), !is.na(`Natural lighting`), !is.na(Urbanisation)) %>%
+  group_by(`Speed limit`, `Natural lighting`, Urbanisation) %>%
+  summarise(
+    `Total Crashes` = n(),
+    `Fatal %`       = mean(severity == "Fatal"),
+    .groups = "drop"
+  ) %>%
+  filter(`Total Crashes` >= 200) %>%
+  arrange(desc(`Fatal %`)) %>%
+  slice_head(n = 10) %>%
+  mutate(`Fatal %` = scales::percent(`Fatal %`, accuracy = 0.1)) %>%
+  rename(`Speed Limit` = `Speed limit`, `Lighting` = `Natural lighting`)
+
+kable(risk_table, align = c("l","l","l","r","r")) %>%
+  kable_styling(full_width = TRUE, font_size = 13) %>%
+  row_spec(0, bold = TRUE, background = "#2E74B5", color = "white") %>%
+  row_spec(1:3, background = "#fce4e4") %>%
+  column_spec(5, bold = TRUE, color = "#d62728")
 ```
+
+> **Key finding:** Highest-risk scenarios all share 110 km/h + darkness + rural conditions — three features directly captured by `speed_band`, `is_night`, and `Urbanisation`.
 
 ## EDA & Data Understanding: Temporal Patterns
 
 <small style="color:#2E74B5">**Rubric criterion:** EDA & Data Understanding  \|  2 pts</small>
 
 ```{r slide-temporal, fig.height=3.5}
-# TODO: [member name] — crash frequency heatmap by day of week and time interval
+day_levels <- c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+
+df_raw %>%
+  mutate(`Day of week of crash` = factor(`Day of week of crash`, levels = day_levels),
+         `Two-hour intervals`   = factor(`Two-hour intervals`,
+                                          levels = unique(`Two-hour intervals`))) %>%
+  group_by(`Day of week of crash`, `Two-hour intervals`) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  ggplot(aes(x = `Two-hour intervals`, y = `Day of week of crash`, fill = count)) +
+  geom_tile(colour = "white", linewidth = 0.4) +
+  scale_fill_gradient(low = "#f0f4ff", high = "#1F4E79", labels = comma) +
+  labs(title = "Crash Frequency by Day of Week and Two-Hour Interval",
+       subtitle = "Morning (7-9 am) and evening (4-6 pm) commute peaks visible on weekdays",
+       x = "Two-Hour Interval", y = NULL, fill = "Crash Count") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank())
 ```
+
+> **Key finding:** Volume peaks at weekday commute hours, motivating `is_rush_hour` and `is_weekend` features. Fatal *rate* (not count) is elevated on weekends and late-night hours.
 
 ## Data Preprocessing: Pipeline
 
@@ -280,10 +330,24 @@ kable(model_tbl, booktabs = TRUE) %>%
 
 <small style="color:#2E74B5">**Rubric criterion:** Model Fitting  \|  2 pts</small>
 
-```{r results-rf, fig.height=3.5}
-# TODO: [member name] — variable importance plot (top 15) + confusion matrix heatmap
-# Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
+```{r results-rf, fig.height=3.5, out.width='48%', fig.show='hold'}
+knitr::include_graphics(c(
+  "plots/5_3_random_forest_variable_importance_top15.png",
+  "plots/5_3_random_forest_confusion_matrix.png"
+))
 ```
+
+<div style="font-size:13px">
+| Metric | Value |
+|--------|-------|
+| OOB Error Rate | 18.4% |
+| Macro-F1 | 0.614 |
+| Fatal Recall | 0.144 |
+| Weighted F1 | 0.813 |
+| Kappa | 0.583 |
+</div>
+
+> **Top predictors:** Street lighting, LGA, Day of week, Month of crash, Key TU type — environmental context dominates over vehicle type.
 
 ## Model Fitting: XGBoost
 
@@ -308,16 +372,56 @@ kable(model_tbl, booktabs = TRUE) %>%
 <small style="color:#2E74B5">**Rubric criterion:** Model Improvement  \|  2 pts</small>
 
 ```{r slide-improvement}
-# TODO: [member name] — tuning table (model, parameter, range, best value) + before/after metric comparison
+tuning_tbl <- tibble::tibble(
+  Model       = c("Logistic Regression", "Decision Tree", "Random Forest",
+                  "XGBoost", "KNN", "Naive Bayes"),
+  Parameter   = c("decay", "cp (complexity)", "mtry",
+                  "nrounds / max_depth / eta", "k (neighbours)", "usekernel / laplace"),
+  `Search Range` = c("0, 0.001, 0.01, 0.1",
+                     "0.0001 to 0.01",
+                     "tuneRF: 4, 6, 9, 13",
+                     "nrounds: 50-200 | depth: 3-6 | eta: 0.01-0.3",
+                     "5, 11, 21, 31, 51",
+                     "kernel: T/F | laplace: 0, 0.5, 1"),
+  `Best Value`       = c("TODO", "TODO", "mtry = 13",  "TODO", "TODO", "TODO"),
+  `Macro-F1 Before`  = c("TODO", "TODO", "0.614",      "TODO", "TODO", "TODO"),
+  `Macro-F1 After`   = c("TODO", "TODO", "0.634",      "TODO", "TODO", "TODO"),
+  `Fatal Recall After` = c("TODO", "TODO", "0.181",    "TODO", "TODO", "TODO")
+)
+
+kable(tuning_tbl, booktabs = TRUE) %>%
+  kable_styling(full_width = TRUE, font_size = 12) %>%
+  row_spec(0, bold = TRUE, background = "#2E74B5", color = "white") %>%
+  row_spec(3, background = "#eaf3fb") %>%
+  column_spec(1, bold = TRUE)
 ```
+
+> RF: `tuneRF` identified **mtry = 13** (default = 6) — Macro-F1 +0.020, Fatal Recall +0.037. OOB converges before 75 trees.
 
 ## Model Evaluation
 
 <small style="color:#2E74B5">**Rubric criterion:** Model Evaluation  \|  2 pts</small>
 
 ```{r slide-evaluation}
-# TODO: [member name] — comparison table (6 models x Macro-F1, Fatal Recall, Weighted F1, Kappa)
+eval_tbl <- tibble::tibble(
+  Model          = c("Logistic Regression", "Decision Tree", "Random Forest (tuned)",
+                     "XGBoost", "KNN", "Naive Bayes"),
+  `Macro-F1`     = c("TODO", "TODO", "**0.634**", "TODO", "TODO", "TODO"),
+  `Fatal Recall` = c("TODO", "TODO", "0.181",     "TODO", "TODO", "TODO"),
+  `Weighted F1`  = c("TODO", "TODO", "0.815",     "TODO", "TODO", "TODO"),
+  `Kappa`        = c("TODO", "TODO", "0.590",     "TODO", "TODO", "TODO"),
+  `Meets Fatal Recall >= 0.50` = c("TODO", "TODO", "No (dev subsample)", "TODO", "TODO", "TODO")
+)
+
+kable(eval_tbl, booktabs = TRUE, escape = FALSE) %>%
+  kable_styling(full_width = TRUE, font_size = 13) %>%
+  row_spec(0, bold = TRUE, background = "#2E74B5", color = "white") %>%
+  row_spec(3, background = "#eaf3fb") %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(3, color = ifelse(eval_tbl$`Fatal Recall` == "TODO", "grey50", "#d62728"))
 ```
+
+> RF (tuned) leads on Macro-F1 among completed models. Fatal Recall below 0.50 threshold on 50% subsample — expected to improve on full training data for final submission.
 
 ## Model Selection
 
@@ -343,9 +447,3 @@ kable(model_tbl, booktabs = TRUE) %>%
 # TODO: [member name] — limitations, future research directions
 ```
 
-## References
-
-```{r slide-references}
-# TODO: [member name] — APA 7th references for all sources cited across slides
-# AI acknowledgement to be added as a <small> footnote at the bottom
-```
