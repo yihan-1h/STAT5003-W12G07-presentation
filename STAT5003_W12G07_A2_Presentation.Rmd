@@ -333,18 +333,62 @@ kable(model_tbl, booktabs = TRUE) %>%
 ## Model Fitting: Logistic Regression
 
 
-```{r results-lr, fig.height=3.5}
-# TODO: [member name] - confusion matrix heatmap + coefficient plot or ROC curves
-# Train on: df_train | CV: cv_ctrl_smote | Evaluate on: df_test
-```
+Logistic regression served as our **interpretable baseline** model. It helps show how key predictors are associated with crash severity, while also giving us a benchmark for comparing more flexible models.
+
+<div style="display:flex; align-items:flex-start; gap:16px;">
+<div style="flex:0 0 52%;">
+<img src="plots/5_1_logistic_regression_confusion_matrix.png" style="width:100%; height:auto;"/>
+</div>
+<div style="flex:0 0 44%;">
+<img src="plots/5_1_logistic_regression_coefficients.png" style="width:100%; height:auto;"/>
+
+<table style="font-size:12px; width:100%; border-collapse:collapse; margin-top:6px; text-align:left;">
+<thead><tr style="background:#2E74B5; color:white;">
+  <th style="padding:4px 8px;">Metric</th><th style="padding:4px 8px; text-align:right;">Value</th>
+</tr></thead>
+<tbody>
+  <tr><td style="padding:3px 8px;">Macro-F1</td><td style="padding:3px 8px; text-align:right;">0.4395</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px; color:#d62728;"><b>Fatal Recall</b></td><td style="padding:3px 8px; text-align:right; color:#d62728;"><b>0.7739</b></td></tr>
+  <tr><td style="padding:3px 8px;">Weighted F1</td><td style="padding:3px 8px; text-align:right;">0.5914</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px;">Kappa</td><td style="padding:3px 8px; text-align:right;">0.2724</td></tr>
+</tbody>
+</table>
+
+<p style="font-size:11px; text-align:left; margin:0; line-height:1.2; background:#f9f9f9; padding:6px; ">
+  <b>Key message:</b> High coefficients for <b>Pedestrians</b>, <b>Night-time</b>, and <b>Non-urban</b> areas prove our baseline LR successfully prioritises the minority class.
+</p>
+</div>
+</div>
 
 ## Model Fitting: Decision Tree
 
 
-```{r results-dt, fig.height=3.5}
-# TODO: [member name] - rpart.plot tree diagram + confusion matrix heatmap
-# Train on: df_train | CV: cv_ctrl | Evaluate on: df_test
-```
+Decision Tree was included because it produces clear **if-then style rules**, making it easier to explain the model to a non-technical audience. It reveals hierarchical relationships between risk factors.
+
+<div style="display:flex; align-items:flex-start; gap:16px;">
+<div style="flex:0 0 54%;">
+<img src="plots/5_2_decision_tree_diagram.png" style="width:100%; height:auto;"/>
+</div>
+<div style="flex:0 0 42%; text-align:center;">
+<img src="plots/5_2_decision_tree_confusion_matrix.png" style="width:100%; height:auto;"/>
+
+<table style="font-size:12px; width:100%; border-collapse:collapse; margin-top:6px; text-align:left;">
+<thead><tr style="background:#2E74B5; color:white;">
+  <th style="padding:4px 8px;">Metric</th><th style="padding:4px 8px; text-align:right;">Value</th>
+</tr></thead>
+<tbody>
+  <tr><td style="padding:3px 8px;">Macro-F1</td><td style="padding:3px 8px; text-align:right;">0.4290</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px; color:#d62728;"><b>Fatal Recall</b></td><td style="padding:3px 8px; text-align:right; color:#d62728;"><b>0.7287</b></td></tr>
+  <tr><td style="padding:3px 8px;">Weighted F1</td><td style="padding:3px 8px; text-align:right;">0.5837</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 8px;">Kappa</td><td style="padding:3px 8px; text-align:right;">0.2430</td></tr>
+</tbody>
+</table>
+
+<p style="font-size:10.5px; text-align:left; margin:0; line-height:1.2; background:#f9f9f9; padding:6px; ">
+  <b>Key message:</b> The tree identifies <b>Street Lighting</b> and <b>Distance</b> as the primary root splits. Using heavy class weights ensures the model actively searches for Fatal outcomes, satisfying safety constraints.
+</p>
+</div>
+</div>
 
 ## Model Fitting: Random Forest
 
@@ -396,16 +440,16 @@ tuning_tbl <- tibble::tibble(
                   "XGBoost", "KNN", "Naive Bayes"),
   Parameter   = c("decay", "cp (complexity)", "mtry",
                   "nrounds / max_depth / eta", "k (neighbours)", "usekernel / laplace"),
-  `Search Range` = c("0, 0.001, 0.01, 0.1",
-                     "0.0001 to 0.01",
+  `Search Range` = c("0 to 0.1",
+                     "0.001 to 0.01",
                      "tuneRF: 4, 6, 9, 13",
                      "nrounds: 50-200 | depth: 3-6 | eta: 0.01-0.3",
                      "5, 11, 21, 31, 51",
                      "kernel: T/F | laplace: 0, 0.5, 1"),
-  `Best Value`       = c("TODO", "TODO", "mtry = 13",  "TODO", "TODO", "TODO"),
-  `Macro-F1 Before`  = c("TODO", "TODO", "0.614",      "TODO", "TODO", "TODO"),
-  `Macro-F1 After`   = c("TODO", "TODO", "0.634",      "TODO", "TODO", "TODO"),
-  `Fatal Recall After` = c("TODO", "TODO", "0.181",    "TODO", "TODO", "TODO")
+  `Best Value`       = c("0.01", "0.01*", "mtry = 13",  "TODO", "TODO", "TODO"),
+  `Macro-F1 Before`  = c("0.440", "0.429", "0.614",      "TODO", "TODO", "TODO"),
+  `Macro-F1 After`   = c("0.442", "0.429*", "0.634",      "TODO", "TODO", "TODO"),
+  `Fatal Recall After` = c("0.761", "0.729*", "0.181",    "TODO", "TODO", "TODO")
 )
 
 kable(tuning_tbl, booktabs = TRUE) %>%
@@ -422,13 +466,13 @@ kable(tuning_tbl, booktabs = TRUE) %>%
 
 ```{r slide-evaluation}
 eval_tbl <- tibble::tibble(
-  Model          = c("Logistic Regression", "Decision Tree", "Random Forest (tuned)",
+  Model          = c("Logistic Regression (tuned)", "Decision Tree (baseline)", "Random Forest (tuned)",
                      "XGBoost", "KNN", "Naive Bayes"),
-  `Macro-F1`     = c("TODO", "TODO", "**0.634**", "TODO", "TODO", "TODO"),
-  `Fatal Recall` = c("TODO", "TODO", "0.181",     "TODO", "TODO", "TODO"),
-  `Weighted F1`  = c("TODO", "TODO", "0.815",     "TODO", "TODO", "TODO"),
-  `Kappa`        = c("TODO", "TODO", "0.590",     "TODO", "TODO", "TODO"),
-  `Meets Fatal Recall >= 0.50` = c("TODO", "TODO", "No", "TODO", "TODO", "TODO")
+  `Macro-F1`     = c("0.442", "0.429", "**0.634**", "TODO", "TODO", "TODO"),
+  `Fatal Recall` = c("0.761", "0.729", "0.181",     "TODO", "TODO", "TODO"),
+  `Weighted F1`  = c("0.591", "0.584", "0.815",     "TODO", "TODO", "TODO"),
+  `Kappa`        = c("0.272", "0.243", "0.590",     "TODO", "TODO", "TODO"),
+  `Meets Fatal Recall >= 0.50` = c("Yes", "Yes", "No", "TODO", "TODO", "TODO")
 )
 
 kable(eval_tbl, booktabs = TRUE, escape = FALSE) %>%
