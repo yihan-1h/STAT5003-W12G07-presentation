@@ -749,7 +749,7 @@ model_dt_deep <- rpart(
   data = train_dt,
   method = "class",
   weights = dt_weights,
-  control = rpart.control(cp = 0.001, xval = 5) # xval=5 保持与小组统一定义的 5-fold CV 一致
+  control = rpart.control(cp = 0.001, xval = 5) # xval=5
 )
 
 # 2. Extract the CP with minimum xerror from the deep tree
@@ -764,10 +764,10 @@ invisible(dev.off())
 
 plotcp(model_dt_deep, main = "Decision Tree - CP Tuning Plot")
 
-# 4. 用找到的最优 CP 对深树进行剪枝
+# 4. Prune the deep tree using the optimal CP found
 model_dt_tuned <- prune(model_dt_deep, cp = best_cp)
 
-# 5. 在测试集上评估剪枝后的模型
+# 5. Evaluate the pruned model on the test set
 pred_dt_tuned <- predict(model_dt_tuned, newdata = test_dt, type = "class")
 cm_dt_tuned <- confusionMatrix(pred_dt_tuned, test_dt$Degree.of.crash)
 
