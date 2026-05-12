@@ -649,17 +649,144 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 
 #### 5.6 Naive Bayes
 
-```{r model-nb, message=FALSE, warning=FALSE}
-# TODO: [member name]  -  MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.6)
-# Use DEFAULT hyperparameters (usekernel = FALSE, laplace = 0)  -  do NOT tune here
-# method = "naive_bayes" | CV: cv_ctrl_smote | Weights: via SMOTE + class prior
-# Produce: confusionMatrix() on df_test, heatmap, 4 metrics
-# Save metrics as: macro_f1_nb, fatal_recall_nb (needed for §6.6 before/after table)
-# Save plots: p_nb_cm
-#   ggsave("plots/5_6_naive_bayes_confusion_matrix.png", p_nb_cm, width=7, height=5, dpi=150)
+Naive Bayes was selected as a probabilistic benchmark model due to the highly categorical nature of the NSW crash dataset. Environmental variables such as weather conditions, natural lighting, surface condition, and urbanisation are primarily categorical predictors, making Naive Bayes suitable for estimating class probabilities under the conditional independence assumption.
 
+Compared with more complex ensemble methods, Naive Bayes is computationally efficient and highly interpretable. It also provides useful insight into whether the marginal distributions of environmental and traffic-related variables already contain sufficient predictive information for crash severity classification.
+
+```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
+# =========================
+# 5.6 Naive Bayes
+# =========================
+
+# Safety check: create df_train_sub if it does not exist
+if (!exists("df_train_sub")) {
+  set.seed(42)
+  sub_idx <- createDataPartition(df_train$`Degree of crash`, p = 0.50, list = FALSE)
+  df_train_sub <- df_train[sub_idx, ]
+}
+
+# Prepare data for Naive Bayes
+df_train_nb <- df_train_sub
+df_test_nb  <- df_test
+
+# Remove columns that are entirely NA
+df_train_nb <- df_train_nb[, colSums(is.na(df_train_nb)) < nrow(df_train_nb)]
+df_test_nb  <- df_test_nb[, names(df_train_nb)]
+
+# Remove rows with missing target
+df_train_nb <- df_train_nb %>% filter(!is.na(`Degree of crash`))
+df_test_nb  <- df_test_nb %>% filter(!is.na(`Degree of crash`))
+
+# Convert character predictors to factors
+df_train_nb <- df_train_nb %>%
+  mutate(across(where(is.character), as.factor))
+
+df_test_nb <- df_test_nb %>%
+  mutate(across(where(is.character), as.factor))
+
+# Convert predictor NA to "Unknown", but do not touch the target
+predictor_cols <- setdiff(names(df_train_nb), "Degree of crash")
+
+for (col in predictor_cols) {
+  if (is.factor(df_train_nb[[col]])) {
+    df_train_nb[[col]] <- fct_na_value_to_level(df_train_nb[[col]], level = "Unknown")
+    df_test_nb[[col]]  <- fct_na_value_to_level(df_test_nb[[col]], level = "Unknown")
+  }
+}
+
+# Remove remaining rows with numeric NA
+df_train_nb <- na.omit(df_train_nb)
+df_test_nb  <- na.omit(df_test_nb)
+
+# Drop unused target levels
+df_train_nb$`Degree of crash` <- droplevels(as.factor(df_train_nb$`Degree of crash`))
+df_test_nb$`Degree of crash`  <- droplevels(as.factor(df_test_nb$`Degree of crash`))
+
+# Train baseline Naive Bayes
+set.seed(5003)
+
+nb_model <- train(
+  `Degree of crash` ~ .,
+  data = df_train_nb,
+  method = "naive_bayes",
+  trControl = cv_ctrl_smote,
+  metric = "logLoss",
+  tuneGrid = expand.grid(
+    laplace = 0,
+    usekernel = FALSE,
+    adjust = 1
+  )
+)
+
+nb_model$results
+
+# Prediction
+pred_nb <- predict(nb_model, df_test_nb)
+
+# Confusion matrix
+cm_nb <- confusionMatrix(
+  pred_nb,
+  df_test_nb$`Degree of crash`
+)
+
+cm_nb
+# =========================
+# Naive Bayes Performance Metrics
+# =========================
+
+recall_nb <- cm_nb$byClass[, "Sensitivity"]
+precision_nb <- cm_nb$byClass[, "Pos Pred Value"]
+
+f1_nb <- 2 * precision_nb * recall_nb / (precision_nb + recall_nb)
+f1_nb[is.na(f1_nb)] <- 0
+
+macro_f1_nb <- mean(f1_nb, na.rm = TRUE)
+fatal_recall_nb <- recall_nb["Class: Fatal"]
+
+class_weights <- prop.table(table(df_test_nb$`Degree of crash`))
+f1_names_clean <- gsub("Class: ", "", names(f1_nb))
+
+weighted_f1_nb <- sum(
+  f1_nb * class_weights[f1_names_clean],
+  na.rm = TRUE
+)
+
+kappa_nb <- cm_nb$overall["Kappa"]
+
+nb_metrics <- data.frame(
+  Model = "Naive Bayes",
+  Macro_F1 = round(macro_f1_nb, 3),
+  Fatal_Recall = round(fatal_recall_nb, 3),
+  Weighted_F1 = round(weighted_f1_nb, 3),
+  Kappa = round(kappa_nb, 3)
+)
+
+knitr::kable(
+  nb_metrics,
+  caption = "Naive Bayes Performance Metrics"
+)
+# =========================
+# Naive Bayes Confusion Matrix Heatmap
+# =========================
+
+cm_nb_df <- as.data.frame(cm_nb$table)
+
+p_nb_cm <- ggplot(cm_nb_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 3.5) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    title = "Naive Bayes Confusion Matrix",
+    subtitle = paste0("Fatal Recall = ", round(fatal_recall_nb, 3)),
+    x = "Actual Class",
+    y = "Predicted Class",
+    fill = "Count"
+  ) +
+  theme_minimal()
+
+p_nb_cm
 ```
-
+The Naive Bayes model achieved a high Fatal Recall of 0.856, meaning that it successfully identified most fatal crashes in the dataset. However, overall performance remained relatively weak, with low Accuracy (0.247), Macro-F1 (0.205), Weighted F1 (0.188), and Kappa (0.086). The confusion matrix showed that the model substantially over-predicted the Fatal class, incorrectly classifying many Injury and Non-casualty crashes as Fatal. This suggests that while Naive Bayes is highly sensitive to minority-class detection, its conditional independence assumption is too simplistic for capturing the complex relationships between environmental, spatial, and traffic-related crash features. Overall, Naive Bayes served as a useful probabilistic baseline model, but more advanced ensemble methods such as Random Forest and XGBoost provided better overall classification balance and predictive performance.
 ------------------------------------------------------------------------
 
 ### 6 Model Improvement
@@ -930,13 +1057,192 @@ ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, widt
 
 #### 6.6 Naive Bayes - Improvement
 
-```{r improve-nb, message=FALSE, warning=FALSE}
-# TODO: [member name]  -  MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.6)
-# Tune: usekernel and laplace via tuneGrid = expand.grid(usekernel = c(TRUE, FALSE), laplace = c(0, 0.5, 1), adjust = 1)
-# Plot: bar chart of Macro-F1 across tuning combinations
-# Table: before/after using macro_f1_nb / fatal_recall_nb from §5.6 vs tuned values
-```
+```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
+# =========================
+# 6.6 Naive Bayes Improvement
+# =========================
 
+# Stable tuning control for Naive Bayes
+ctrl_nb_tune <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = mnLogLoss,
+  sampling = "smote",
+  allowParallel = FALSE
+)
+
+# Small tuning grid for speed and stability
+nb_grid <- expand.grid(
+  laplace = c(0, 1),
+  usekernel = c(FALSE, TRUE),
+  adjust = c(1)
+)
+
+set.seed(5003)
+
+nb_tuned <- train(
+  `Degree of crash` ~ .,
+  data = df_train_nb,
+  method = "naive_bayes",
+  trControl = ctrl_nb_tune,
+  metric = "logLoss",
+  tuneGrid = nb_grid
+)
+
+# Best tuning parameters and CV results
+nb_tuned$bestTune
+nb_tuned$results
+# =========================
+# Tuned Naive Bayes Evaluation
+# =========================
+
+pred_nb_tuned <- predict(nb_tuned, df_test_nb)
+
+cm_nb_tuned <- confusionMatrix(
+  pred_nb_tuned,
+  df_test_nb$`Degree of crash`
+)
+
+# Extract metrics
+recall_nb_tuned <- cm_nb_tuned$byClass[, "Sensitivity"]
+precision_nb_tuned <- cm_nb_tuned$byClass[, "Pos Pred Value"]
+
+f1_nb_tuned <- 2 * precision_nb_tuned * recall_nb_tuned /
+  (precision_nb_tuned + recall_nb_tuned)
+
+f1_nb_tuned[is.na(f1_nb_tuned)] <- 0
+
+macro_f1_nb_tuned <- mean(f1_nb_tuned, na.rm = TRUE)
+fatal_recall_nb_tuned <- recall_nb_tuned["Class: Fatal"]
+
+f1_names_tuned_clean <- gsub("Class: ", "", names(f1_nb_tuned))
+
+weighted_f1_nb_tuned <- sum(
+  f1_nb_tuned * class_weights[f1_names_tuned_clean],
+  na.rm = TRUE
+)
+
+kappa_nb_tuned <- cm_nb_tuned$overall["Kappa"]
+
+nb_tuned_metrics <- data.frame(
+  Model = "Tuned Naive Bayes",
+  Macro_F1 = round(macro_f1_nb_tuned, 3),
+  Fatal_Recall = round(fatal_recall_nb_tuned, 3),
+  Weighted_F1 = round(weighted_f1_nb_tuned, 3),
+  Kappa = round(kappa_nb_tuned, 3)
+)
+
+knitr::kable(
+  nb_tuned_metrics,
+  caption = "Tuned Naive Bayes Performance Metrics"
+)
+# =========================
+# Before vs After Comparison
+# =========================
+
+nb_before_after <- data.frame(
+  Model = c("Baseline NB", "Tuned NB"),
+  Macro_F1 = c(round(macro_f1_nb, 3), round(macro_f1_nb_tuned, 3)),
+  Fatal_Recall = c(round(fatal_recall_nb, 3), round(fatal_recall_nb_tuned, 3)),
+  Weighted_F1 = c(round(weighted_f1_nb, 3), round(weighted_f1_nb_tuned, 3)),
+  Kappa = c(round(kappa_nb, 3), round(kappa_nb_tuned, 3))
+)
+
+knitr::kable(
+  nb_before_after,
+  caption = "Naive Bayes Before and After Hyperparameter Tuning"
+)
+# =========================
+# Compact Visualisation 
+# =========================
+
+# Tuning plot
+p_nb_tune <- ggplot(
+  nb_tuned$results,
+  aes(
+    x = factor(laplace),
+    y = logLoss,
+    fill = as.factor(usekernel)
+  )
+) +
+  geom_col(position = "dodge", width = 0.7) +
+  labs(
+    title = "NB Tuning Results",
+    x = "Laplace",
+    y = "CV Log Loss",
+    fill = "Kernel"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(size = 11, face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Tuned confusion matrix heatmap
+cm_nb_tuned_df <- as.data.frame(cm_nb_tuned$table)
+
+p_nb_tuned_cm <- ggplot(
+  cm_nb_tuned_df,
+  aes(x = Reference, y = Prediction, fill = Freq)
+) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 3) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    title = "Tuned NB Confusion Matrix",
+    subtitle = paste0("Fatal Recall = ", round(fatal_recall_nb_tuned, 3)),
+    x = "Actual",
+    y = "Predicted",
+    fill = "Count"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title = element_text(size = 11, face = "bold"),
+    plot.subtitle = element_text(size = 9),
+    legend.position = "right"
+  )
+
+# Display two ggplots side by side using built-in grid package
+grid::grid.newpage()
+
+grid::pushViewport(
+  grid::viewport(
+    layout = grid::grid.layout(1, 2)
+  )
+)
+
+print(
+  p_nb_tune,
+  vp = grid::viewport(
+    layout.pos.row = 1,
+    layout.pos.col = 1
+  )
+)
+
+print(
+  p_nb_tuned_cm,
+  vp = grid::viewport(
+    layout.pos.row = 1,
+    layout.pos.col = 2
+  )
+)
+
+dir.create("plots", showWarnings = FALSE)
+
+ggsave("plots/5_6_nb_confusion_matrix.png", p_nb_cm,
+
+       width = 6, height = 4, dpi = 220)
+
+ggsave("plots/6_6_nb_tuning_results.png", p_nb_tune,
+
+       width = 5.5, height = 4, dpi = 220)
+
+ggsave("plots/6_6_tuned_nb_confusion_matrix.png", p_nb_tuned_cm,
+
+       width = 6, height = 4, dpi = 220)
+```
+Hyperparameter tuning improved the aggregate Macro-F1 and Weighted F1 scores, but it completely removed the model’s ability to detect Fatal crashes. The tuned model predicted all observations as the majority Injury class, resulting in Fatal Recall = 0. Therefore, despite slightly better overall metrics, the tuned Naive Bayes model is not suitable for this project because identifying Fatal crashes is a critical objective.
 ------------------------------------------------------------------------
 
 ### 7 Model Evaluation & Selection
