@@ -76,24 +76,36 @@ df_raw <- df_raw %>%
 
 ## Research Question & Motivation
 
+<div style="display:flex; align-items:flex-start; gap:30px;">
+<div style="flex:0 0 55%;">
+
 **Research Question:**
 
-> Given environmental conditions (weather, lighting, road surface, speed limit) 
-> and traffic unit characteristics (TU type, manoeuvre, number of units), 
-> can we predict NSW road crash severity **(Fatal / Injury / Non-casualty)**?
-> - A three-class classification problem.
+> Given environmental conditions (weather, lighting, road surface, speed limit) and traffic unit characteristics (TU type, manoeuvre, number of units), can we predict NSW road crash severity **(Fatal / Injury / Non-casualty)**? A three-class classification problem.
 
-**Motivation:**
+**Why this matters:**
 
-- NSW recorded **340 road fatalities in 2024**, over two-thirds in regional areas *(TfNSW, 2025)*
-- Fatal crashes represent only **~1.4%** of all crashes : severe class imbalance
-- A predictive model has direct value for:
+- NSW recorded **340 road fatalities in 2024**; over two-thirds in regional areas *(TfNSW, 2025)*
+- Fatal crashes are only **~1.4%** of all records - a severe class imbalance that naive models simply ignore
+- Environmental and traffic conditions are knowable *at the time of the crash*, making real-time prediction feasible
+- A robust model provides actionable intelligence across multiple decision-making contexts
 
-| Stakeholder | Value |
-|-------------|-------|
-| **Traffic Authorities** | Targeted speed and road interventions |
-| **Emergency Responders** | Faster, evidence-based resource allocation |
-| **Policymakers & Insurers** | Precise policy and pricing decisions |
+</div>
+<div style="flex:0 0 40%;">
+
+**Stakeholder value:**
+
+| Stakeholder | Application |
+|:------------|:------------|
+| **Traffic Authorities** | Target speed limits and road design in high-risk corridors |
+| **Emergency Responders** | Dispatch resources proportional to predicted severity before on-scene confirmation |
+| **Policymakers & Insurers** | Evidence-based road safety policy and risk-adjusted pricing |
+
+<p style="font-size:12px; margin-top:10px; background:#eaf3fb; padding:8px; border-left:3px solid #2E74B5;">
+The core challenge: <b>Fatal crashes are rare</b> (~1.4%) but highest-consequence. Standard accuracy metrics fail here - we need models and evaluation that explicitly prioritise the minority class.
+</p>
+</div>
+</div>
 
 ## EDA & Data Understanding: Dataset Overview
 
@@ -131,7 +143,7 @@ overview <- data.frame(
   )
 )
 
-flextable(overview) |>
+ft <- flextable(overview) |>
   set_header_labels(Item = "Item", Detail = "Detail") |>
   theme_vanilla() |>
   bold(j = 1) |>
@@ -140,12 +152,18 @@ flextable(overview) |>
   color(i = 7, j = 2, color = "#d62728") |>
   color(i = 8, j = 2, color = "#ff7f0e") |>
   color(i = 9, j = 2, color = "#2ca02c") |>
-  fontsize(size = 16, part = "all") |>    
-  fontsize(size = 18, part = "header") |> 
-  padding(padding = 8, part = "all") |> 
-  set_table_properties(width = 1) |>   
+  fontsize(size = 16, part = "all") |>
+  fontsize(size = 18, part = "header") |>
+  padding(padding = 8, part = "all") |>
+  set_table_properties(width = 0.55, layout = "autofit") |>
+  align(align = "center", part = "all") |>
   autofit()
+ft
 ```
+
+<p style="font-size:13px; text-align:center; margin-top:12px; color:#555;">
+The merged dataset combines crash-level environmental conditions with traffic unit vehicle data, giving us both <b>where</b> a crash happened and <b>who</b> was involved. 170,962 records spanning 5 years provide robust signal for modelling, but the extreme class imbalance (Fatal = 1.4%) demands careful handling throughout.
+</p>
 
 ## EDA & Data Understanding: Class Imbalance
 
@@ -200,7 +218,8 @@ ggplot(class_dist,
 ## EDA & Data Understanding: Speed vs Severity
 
 
-```{r slide-speed, fig.height=5}
+<div style="display:flex; justify-content:center;">
+```{r slide-speed, fig.height=4.2, fig.width=8}
 speed_levels <- c("10 km/h","20 km/h","30 km/h","40 km/h","50 km/h",
                   "60 km/h","70 km/h","80 km/h","90 km/h","100 km/h","110 km/h")
 
@@ -221,8 +240,19 @@ df_raw %>%
   theme_minimal(base_size = 13) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right")
 ```
+</div>
 
-> **Key finding:** Fatal proportion doubles at 100 km/h and triples at 110 km/h relative to 50 km/h zones - directly motivates `speed_band` feature engineering.
+<div style="font-size:13px; margin-top:8px; display:flex; gap:24px; justify-content:center;">
+<div style="background:#fce4e4; border-left:3px solid #d62728; padding:7px 12px; flex:0 0 30%;">
+**Fatal rate at 110 km/h** is ~5x higher than at 50 km/h - the single strongest environmental predictor in the dataset.
+</div>
+<div style="background:#eaf3fb; border-left:3px solid #2E74B5; padding:7px 12px; flex:0 0 30%;">
+**50-60 km/h zones** dominate crash *volume* (urban traffic), but fatal *proportion* is low - volume and risk are decoupled.
+</div>
+<div style="background:#f0faf0; border-left:3px solid #2ca02c; padding:7px 12px; flex:0 0 30%;">
+**Motivates `speed_band`** feature: grouping ≤50 / 60-80 / 90-100 / 110 captures the non-linear jump in fatal risk.
+</div>
+</div>
 
 ## EDA & Data Understanding: High-Risk Scenarios
 
@@ -249,7 +279,17 @@ kable(risk_table, align = c("l","l","l","r","r")) %>%
   column_spec(5, bold = TRUE, color = "#d62728")
 ```
 
-> **Key finding:** Highest-risk scenarios all share 110 km/h + darkness + rural conditions - three features directly captured by `speed_band`, `is_night`, and `Urbanisation`.
+<div style="font-size:13px; margin-top:10px; display:flex; gap:20px;">
+<div style="background:#fce4e4; border-left:3px solid #d62728; padding:7px 12px; flex:1;">
+**Top 3 rows (highlighted)** all share 110 km/h + Dusk/Darkness + Country non-urban. Fatal rates of 6.7-7.8% are 5x the overall baseline of ~1.4%.
+</div>
+<div style="background:#eaf3fb; border-left:3px solid #2E74B5; padding:7px 12px; flex:1;">
+**Feature validation:** All three risk dimensions - speed (`speed_band`), lighting (`is_night`), and location (`Urbanisation`) - are directly captured in our engineered feature set.
+</div>
+<div style="background:#fff8e1; border-left:3px solid #ff9800; padding:7px 12px; flex:1;">
+**Interaction matters:** 100 km/h + Daylight + Rural still yields 5.5% Fatal. Speed alone is not sufficient - the model needs to learn joint combinations.
+</div>
+</div>
 
 ## EDA & Data Understanding: Temporal Patterns
 
@@ -299,45 +339,44 @@ df_raw %>%
 ## Data Preprocessing: Feature Engineering & Class Balancing
 
 
-<div style="display:flex; align-items:flex-start; gap:20px;">
-<div style="flex:0 0 63%;">
+<div style="display:flex; flex-direction:column; align-items:center; gap:14px;">
 
-**Engineered features**  -  all motivated by EDA
-
-<table style="font-size:14px; width:100%; border-collapse:collapse;">
+<div style="width:72%;">
+<p style="font-size:13px; font-weight:bold; margin-bottom:4px; text-align:center;">Engineered features - all motivated by EDA</p>
+<table style="font-size:13px; width:100%; border-collapse:collapse;">
 <thead><tr style="background:#2E74B5; color:white;">
-  <th style="padding:4px 7px;color:white;">Feature</th>
-  <th style="padding:4px 7px;color:white;">Derivation</th>
-  <th style="padding:4px 7px;color:white;">EDA motivation</th>
+  <th style="padding:5px 10px;color:white; text-align:left;">Feature</th>
+  <th style="padding:5px 10px;color:white; text-align:left;">Derivation</th>
+  <th style="padding:5px 10px;color:white; text-align:left;">EDA motivation</th>
 </tr></thead>
 <tbody>
-  <tr><td style="padding:3px 7px;"><code>speed_band</code></td><td style="padding:3px 7px;">Cut Speed limit: ≤50 / 60-80 / 90-100 / 110</td><td style="padding:3px 7px;">Fatal rate rises above 100 km/h</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_night</code></td><td style="padding:3px 7px;">Natural lighting in {Darkness, Dawn, Dusk}</td><td style="padding:3px 7px;">Dark conditions double fatal risk</td></tr>
-  <tr><td style="padding:3px 7px;"><code>is_rush_hour</code></td><td style="padding:3px 7px;">Two-hour intervals in {7-9, 16-18}</td><td style="padding:3px 7px;">Commute peaks dominate crash volume</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_weekend</code></td><td style="padding:3px 7px;">Day of week in Saturday, Sunday</td><td style="padding:3px 7px;">Weekend crashes differ in severity</td></tr>
-  <tr><td style="padding:3px 7px;"><code>is_wet</code></td><td style="padding:3px 7px;">Surface condition contains "Wet"</td><td style="padding:3px 7px;">Wet roads linked to skidding fatalities</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>has_motorcycle</code></td><td style="padding:3px 7px;">TU-level aggregated flag</td><td style="padding:3px 7px;">Motorcyclists over-represented in fatals</td></tr>
-  <tr><td style="padding:3px 7px;"><code>has_pedestrian</code></td><td style="padding:3px 7px;">TU-level aggregated flag</td><td style="padding:3px 7px;">Pedestrian crashes nearly always severe</td></tr>
+  <tr><td style="padding:4px 10px;"><code>speed_band</code></td><td style="padding:4px 10px;">Cut Speed limit: ≤50 / 60-80 / 90-100 / 110</td><td style="padding:4px 10px;">Fatal rate rises sharply above 100 km/h</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:4px 10px;"><code>is_night</code></td><td style="padding:4px 10px;">Natural lighting in {Darkness, Dawn, Dusk}</td><td style="padding:4px 10px;">Dark conditions double fatal risk</td></tr>
+  <tr><td style="padding:4px 10px;"><code>is_rush_hour</code></td><td style="padding:4px 10px;">Two-hour intervals in {7-9, 16-18}</td><td style="padding:4px 10px;">Commute peaks dominate crash volume</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:4px 10px;"><code>is_weekend</code></td><td style="padding:4px 10px;">Day of week in Saturday, Sunday</td><td style="padding:4px 10px;">Weekend crashes differ in severity profile</td></tr>
+  <tr><td style="padding:4px 10px;"><code>is_wet</code></td><td style="padding:4px 10px;">Surface condition contains "Wet"</td><td style="padding:4px 10px;">Wet roads linked to skidding fatalities</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:4px 10px;"><code>has_motorcycle</code></td><td style="padding:4px 10px;">TU-level aggregated flag</td><td style="padding:4px 10px;">Motorcyclists over-represented in fatals</td></tr>
+  <tr><td style="padding:4px 10px;"><code>has_pedestrian</code></td><td style="padding:4px 10px;">TU-level aggregated flag</td><td style="padding:4px 10px;">Pedestrian crashes nearly always severe</td></tr>
 </tbody>
 </table>
 </div>
-<div style="flex:0 0 33%; font-size:12px;">
 
-**Handling class imbalance**
-
-<table style="width:100%; border-collapse:collapse; font-size:12px;">
+<div style="width:72%;">
+<p style="font-size:13px; font-weight:bold; margin-bottom:4px; text-align:center;">Handling class imbalance</p>
+<table style="font-size:13px; width:100%; border-collapse:collapse;">
 <thead><tr style="background:#2E74B5; color:white;">
-  <th style="padding:4px 7px;color:white;">Issue</th><th style="padding:4px 7px;color:white;">Strategy</th>
+  <th style="padding:5px 10px;color:white; text-align:left;">Issue</th>
+  <th style="padding:5px 10px;color:white; text-align:left;">Strategy</th>
 </tr></thead>
 <tbody>
-  <tr><td style="padding:3px 7px;">Fatal only ~1.4%</td><td style="padding:3px 7px;">Naive models predict majority class only</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Class weights</td><td style="padding:3px 7px;">Inverse-frequency weights on all models</td></tr>
-  <tr><td style="padding:3px 7px;">SMOTE</td><td style="padding:3px 7px;">Inside training fold only (LR, KNN); Fatal raised to ~10%</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Test set</td><td style="padding:3px 7px;">Unmodified  -  real-world distribution preserved</td></tr>
-  <tr><td style="padding:3px 7px;">Primary metrics</td><td style="padding:3px 7px;">Macro-F1 + Fatal Recall (target ≥ 0.50)</td></tr>
+  <tr><td style="padding:4px 10px;">Fatal only ~1.4% of crashes</td><td style="padding:4px 10px;">Naive accuracy-maximising models predict majority class only - useless for our goal</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:4px 10px;">Class weights (all models)</td><td style="padding:4px 10px;">Inverse-frequency weights penalise Fatal misclassification more heavily during training</td></tr>
+  <tr><td style="padding:4px 10px;">SMOTE (LR, KNN)</td><td style="padding:4px 10px;">Synthetic oversampling applied inside training fold only; Fatal raised to ~10% - test set unmodified</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:4px 10px;">Primary metrics</td><td style="padding:4px 10px;">Macro-F1 (equal weight across classes) + Fatal Recall (hard constraint: target ≥ 0.50)</td></tr>
 </tbody>
 </table>
 </div>
+
 </div>
 
 ## Model Fitting: Approach & Setup
@@ -397,13 +436,13 @@ Logistic regression served as our **interpretable baseline** model. It helps sho
 Decision Tree was included because it produces clear **if-then style rules**, making it easier to explain the model to a non-technical audience. It reveals hierarchical relationships between risk factors.
 
 <div style="display:flex; align-items:flex-start; gap:16px;">
-<div style="flex:0 0 54%;">
-<img src="plots/5_2_decision_tree_diagram.png" style="width:100%; height:auto;"/>
+<div style="flex:0 0 49%;">
+<img src="plots/5_2_decision_tree_diagram.png" style="width:90%; height:auto;"/>
 </div>
-<div style="flex:0 0 42%; text-align:center;">
-<img src="plots/5_2_decision_tree_confusion_matrix.png" style="width:100%; height:auto;"/>
+<div style="flex:0 0 47%; text-align:center;">
+<img src="plots/5_2_decision_tree_confusion_matrix.png" style="width:90%; height:auto;"/>
 
-<table style="font-size:12px; width:100%; border-collapse:collapse; margin-top:6px; text-align:left;">
+<table style="font-size:12px; width:90%; border-collapse:collapse; margin-top:6px; text-align:left;">
 <thead><tr style="background:#2E74B5; color:white;">
   <th style="padding:4px 8px;color:white;">Metric</th><th style="padding:4px 8px;color:white; text-align:right;">Value</th>
 </tr></thead>
@@ -424,13 +463,16 @@ Decision Tree was included because it produces clear **if-then style rules**, ma
 ## Model Fitting: Random Forest
 
 
+Random Forest was chosen as our **ensemble learner** - by averaging hundreds of decorrelated trees it reduces variance and handles the non-linear interactions between speed, location, and lighting that single trees miss. Built-in OOB error replaces CV, making it feasible on large data.
+
 <div style="display:flex; align-items:flex-start; gap:16px;">
-<div style="flex:0 0 54%;">
-<img src="plots/5_3_random_forest_variable_importance_top15.png" style="width:100%; height:auto;"/>
+<div style="flex:0 0 52%;">
+<img src="plots/5_3_random_forest_variable_importance_top15.png" style="width:75%; height:auto; display:block;"/>
+<p style="font-size:10.5px; text-align:left; margin-top:4px; line-height:1.3; background:#f9f9f9; padding:5px; width:75%;"><b>Top predictors:</b> Street lighting, LGA, Day of week, Month - environmental context dominates vehicle type.</p>
 </div>
-<div style="flex:0 0 42%; text-align:center;">
-<img src="plots/5_3_random_forest_confusion_matrix.png" style="width:100%; height:auto;"/>
-<table style="font-size:12px; width:100%; border-collapse:collapse; margin-top:6px; text-align:left;">
+<div style="flex:0 0 44%; text-align:center;">
+<img src="plots/5_3_random_forest_confusion_matrix.png" style="width:75%; height:auto;"/>
+<table style="font-size:12px; width:75%; border-collapse:collapse; margin-top:6px; text-align:left;">
 <thead><tr style="background:#2E74B5; color:white;">
   <th style="padding:4px 8px;color:white;">Metric</th><th style="padding:4px 8px;color:white; text-align:right;">Value</th>
 </tr></thead>
@@ -442,7 +484,6 @@ Decision Tree was included because it produces clear **if-then style rules**, ma
   <tr><td style="padding:3px 8px;">Kappa</td><td style="padding:3px 8px; text-align:right;">0.583</td></tr>
 </tbody>
 </table>
-<p style="font-size:11px; text-align:left; margin-top:6px;"><b>Top predictors:</b> Street lighting, LGA, Day of week, Month  -  environmental context dominates vehicle type.</p>
 </div>
 </div>
 

@@ -654,9 +654,8 @@ Naive Bayes was selected as a probabilistic benchmark model due to the highly ca
 Compared with more complex ensemble methods, Naive Bayes is computationally efficient and highly interpretable. It also provides useful insight into whether the marginal distributions of environmental and traffic-related variables already contain sufficient predictive information for crash severity classification.
 
 ```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
-# =========================
 # 5.6 Naive Bayes
-# =========================
+
 
 # Safety check: create df_train_sub if it does not exist
 if (!exists("df_train_sub")) {
@@ -730,9 +729,9 @@ cm_nb <- confusionMatrix(
 )
 
 cm_nb
-# =========================
+
 # Naive Bayes Performance Metrics
-# =========================
+
 
 recall_nb <- cm_nb$byClass[, "Sensitivity"]
 precision_nb <- cm_nb$byClass[, "Pos Pred Value"]
