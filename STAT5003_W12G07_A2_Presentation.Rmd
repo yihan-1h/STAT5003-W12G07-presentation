@@ -76,7 +76,7 @@ overview <- data.frame(
     "Non-casualty"
   ),
   Detail = c(
-    "2020 – 2024",
+    "2020 - 2024",
     "CRASH.xlsx + TRAFFIC UNIT.xlsx (TfNSW via data.gov.au)",
     "Crash ID (left join)",
     format(total_records, big.mark = ","),
@@ -239,7 +239,7 @@ df_raw %>%
 ## Data Preprocessing: Pipeline
 
 
-**Steps 1–5: Cleaning & Feature Engineering**
+**Steps 1-5: Cleaning & Feature Engineering**
 
 1.  **TU Integration** - aggregated traffic-unit flags per crash (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) using `group_by + summarise + left_join`
 2.  **Feature removal** - dropped leakage columns (post-crash injury counts), identifiers, and variables with \>75% missing values; dropped `Degree of crash - detailed` (redundant with target)
@@ -247,13 +247,13 @@ df_raw %>%
 4.  **Feature engineering** - `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, speed bands - all motivated by EDA findings
 5.  **Outlier handling** - NSW geographic bounds filter; winsorise `Distance` at 99th percentile
 
-**Steps 6–9: Modelling Setup**
+**Steps 6-9: Modelling Setup**
 
 <ol start="6">
 <li>**Encoding** - trees use native R `factor`; KNN/LR use one-hot; rare LGA levels : `"Other"`</li>
 <li>**Scaling** - Z-score standardisation within fold for KNN; trees are scale-invariant</li>
 <li>**Class imbalance** - inverse-frequency class weights (all models); SMOTE applied **inside training fold only**</li>
-<li>**Split** - 2024 data sealed as temporal holdout; 80/20 stratified split on 2020–2023; 5-fold CV</li>
+<li>**Split** - 2024 data sealed as temporal holdout; 80/20 stratified split on 2020-2023; 5-fold CV</li>
 </ol>
 
 ## Data Preprocessing: Feature Engineering & Class Balancing
@@ -262,7 +262,7 @@ df_raw %>%
 <div style="display:flex; align-items:flex-start; gap:20px;">
 <div style="flex:0 0 63%;">
 
-**Engineered features** — all motivated by EDA
+**Engineered features**  -  all motivated by EDA
 
 <table style="font-size:12px; width:100%; border-collapse:collapse;">
 <thead><tr style="background:#2E74B5; color:white;">
@@ -271,9 +271,9 @@ df_raw %>%
   <th style="padding:4px 7px;">EDA motivation</th>
 </tr></thead>
 <tbody>
-  <tr><td style="padding:3px 7px;"><code>speed_band</code></td><td style="padding:3px 7px;">Cut Speed limit: ≤50 / 60–80 / 90–100 / 110</td><td style="padding:3px 7px;">Fatal rate rises above 100 km/h</td></tr>
+  <tr><td style="padding:3px 7px;"><code>speed_band</code></td><td style="padding:3px 7px;">Cut Speed limit: ≤50 / 60-80 / 90-100 / 110</td><td style="padding:3px 7px;">Fatal rate rises above 100 km/h</td></tr>
   <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_night</code></td><td style="padding:3px 7px;">Natural lighting in {Darkness, Dawn, Dusk}</td><td style="padding:3px 7px;">Dark conditions double fatal risk</td></tr>
-  <tr><td style="padding:3px 7px;"><code>is_rush_hour</code></td><td style="padding:3px 7px;">Two-hour intervals in {7–9, 16–18}</td><td style="padding:3px 7px;">Commute peaks dominate crash volume</td></tr>
+  <tr><td style="padding:3px 7px;"><code>is_rush_hour</code></td><td style="padding:3px 7px;">Two-hour intervals in {7-9, 16-18}</td><td style="padding:3px 7px;">Commute peaks dominate crash volume</td></tr>
   <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>is_weekend</code></td><td style="padding:3px 7px;">Day of week in Saturday, Sunday</td><td style="padding:3px 7px;">Weekend crashes differ in severity</td></tr>
   <tr><td style="padding:3px 7px;"><code>is_wet</code></td><td style="padding:3px 7px;">Surface condition contains "Wet"</td><td style="padding:3px 7px;">Wet roads linked to skidding fatalities</td></tr>
   <tr style="background:#f5f5f5;"><td style="padding:3px 7px;"><code>has_motorcycle</code></td><td style="padding:3px 7px;">TU-level aggregated flag</td><td style="padding:3px 7px;">Motorcyclists over-represented in fatals</td></tr>
@@ -293,7 +293,7 @@ df_raw %>%
   <tr><td style="padding:3px 7px;">Fatal only ~1.4%</td><td style="padding:3px 7px;">Naive models predict majority class only</td></tr>
   <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Class weights</td><td style="padding:3px 7px;">Inverse-frequency weights on all models</td></tr>
   <tr><td style="padding:3px 7px;">SMOTE</td><td style="padding:3px 7px;">Inside training fold only (LR, KNN); Fatal raised to ~10%</td></tr>
-  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Test set</td><td style="padding:3px 7px;">Unmodified — real-world distribution preserved</td></tr>
+  <tr style="background:#f5f5f5;"><td style="padding:3px 7px;">Test set</td><td style="padding:3px 7px;">Unmodified  -  real-world distribution preserved</td></tr>
   <tr><td style="padding:3px 7px;">Primary metrics</td><td style="padding:3px 7px;">Macro-F1 + Fatal Recall (target ≥ 0.50)</td></tr>
 </tbody>
 </table>
@@ -402,7 +402,7 @@ Decision Tree was included because it produces clear **if-then style rules**, ma
   <tr><td style="padding:3px 8px;">Kappa</td><td style="padding:3px 8px; text-align:right;">0.583</td></tr>
 </tbody>
 </table>
-<p style="font-size:11px; text-align:left; margin-top:6px;"><b>Top predictors:</b> Street lighting, LGA, Day of week, Month — environmental context dominates vehicle type.</p>
+<p style="font-size:11px; text-align:left; margin-top:6px;"><b>Top predictors:</b> Street lighting, LGA, Day of week, Month  -  environmental context dominates vehicle type.</p>
 </div>
 </div>
 

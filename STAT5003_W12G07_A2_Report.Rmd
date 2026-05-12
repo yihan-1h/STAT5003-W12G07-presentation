@@ -1,6 +1,6 @@
 ---
 title: "NSW Road Crash Severity Prediction"
-subtitle: "STAT5003 — Group 07, Workshop 12"
+subtitle: "STAT5003  -  Group 07, Workshop 12"
 author: "Sanskar | Robert | Haipeng | Chen | Yihan"
 date: "May 2026"
 output:
@@ -30,7 +30,7 @@ library(pROC)
 library(flextable)
 library(MLmetrics)
 
-# Create plots output folder — all ggsave() calls write here for use in Presentation Rmd
+# Create plots output folder  -  all ggsave() calls write here for use in Presentation Rmd
 dir.create("plots", showWarnings = FALSE)
 ```
 
@@ -55,10 +55,10 @@ str(df)
 
 ### 1 Problem Framing & Research Question
 
-## 1.1 Research Question
+#### 1.1 Research Question
 Given environmental conditions (weather, natural lighting, road surface, speed limit) and traffic unit characteristics (type of traffic unit, manoeuvre, number of units involved), can we predict the severity of a road crash in NSW as a three-class classification problem: Fatal, Injury, or Non-casualty?
 
-## 1.2 Motivation 
+#### 1.2 Motivation
 NSW recorded 340 road fatalities in 2024, with over two-thirds occurring in regional areas (Transport for NSW, 2025), highlighting the need for data-driven approaches to understanding crash severity. Fatal crashes represent only approximately 1.4% of all crashes, introducing severe class imbalance that must be carefully addressed during modelling and evaluation.
 
 A predictive model for crash severity has direct real-world value for the following stakeholders:
@@ -70,7 +70,8 @@ Policymakers and Insurance Institutions: Understanding which traffic unit types 
 ------------------------------------------------------------------------
 
 ### 2 Dataset & Justification
-## 2.1 Dataset Overview
+
+#### 2.1 Dataset Overview
 
 ```{r dataset-overview, echo=FALSE, message=FALSE, warning=FALSE}
 overview <- data.frame(
@@ -86,7 +87,7 @@ overview <- data.frame(
     "Non-casualty"
   ),
   Detail = c(
-    "2020 – 2024",
+    "2020 - 2024",
     "CRASH.xlsx + TRAFFIC UNIT.xlsx (TfNSW via data.gov.au)",
     "Crash ID (left join)",
     format(nrow(df), big.mark = ","),
@@ -139,7 +140,7 @@ grid.arrange(p1, p2, p3, p4, nrow = 1)
 ```
 
 - **Crash Severity:** Fatal crashes represent only 1.4% of records, indicating severe class imbalance that must be addressed during modelling.
-- **Speed Limit:** Crashes are heavily concentrated in 50–60 km/h urban zones, reflecting higher traffic volume rather than elevated per-trip risk.
+- **Speed Limit:** Crashes are heavily concentrated in 50-60 km/h urban zones, reflecting higher traffic volume rather than elevated per-trip risk.
 - **Traffic Unit Type:** Car/car derivatives dominate (~114,477), with pedestrians and motorcycles being rare but disproportionately associated with severe outcomes.
 - **Urbanisation:** Sydney metro accounts for the most crashes (98,975), while Country non-urban regions show higher fatal proportions despite lower overall volume.
 
@@ -152,7 +153,7 @@ All data-dependent steps are performed **within cross-validation folds** to prev
 #### 4.1 Data Integration & TU-Level Feature Aggregation
 
 ```{r step1-integration, message=FALSE, warning=FALSE, results='hide'}
-# Each row is one traffic unit — summarise binary flags per crash, then join back
+# Each row is one traffic unit  -  summarise binary flags per crash, then join back
 tu_flags <- df %>%
   group_by(`Crash ID`) %>%
   summarise(
@@ -183,7 +184,7 @@ id_cols <- c("Crash ID", "Traffic unit ID", "Street of crash",
              "Street of travel", "Town", "Identifying feature",
              "Identifying feature type", "Conurbation 1")
 
-# High-NA columns (>75% missing — confirmed from inspection)
+# High-NA columns (>75% missing  -  confirmed from inspection)
 high_na_cols <- c("Primary hazardous feature", "Primary temporary feature",
                   "Object hit 2", "DCA supplement", "Object hit 1",
                   "Primary permanent feature")
@@ -262,7 +263,7 @@ cat("LGA levels after pooling:", nlevels(df_model$LGA), "\n")
 #### 4.7 Train/Test Split & Temporal Holdout
 
 ```{r step7-split, message=FALSE, warning=FALSE, results='hide'}
-# 2024 sealed as temporal holdout — evaluated once at the very end only
+# 2024 sealed as temporal holdout  -  evaluated once at the very end only
 df_holdout_2024  <- df_model %>% filter(`Reporting year` == 2024)
 df_model_2020_23 <- df_model %>% filter(`Reporting year` != 2024)
 
@@ -316,15 +317,15 @@ Table 1 summarises the nine preprocessing steps applied to the raw merged datase
 |---|---|---|
 | 4.1 TU Integration | Aggregated traffic-unit rows into per-crash binary flags (`has_motorcycle`, `has_heavy_vehicle`, `has_pedestrian`, `has_cyclist`) via `group_by` + `left_join` | Vehicle involvement encoded without row duplication |
 | 4.2 Feature Removal | Dropped post-crash injury counts (leakage), identifiers, free-text fields, columns with >75% missing values, and redundant severity detail | Reduced to a clean, leakage-free feature set |
-| 4.3 Imputation | Categorical NAs → `"Unknown"`; numeric NAs → column median | Zero missing values remaining; no rows discarded |
+| 4.3 Imputation | Categorical NAs -> `"Unknown"`; numeric NAs -> column median | Zero missing values remaining; no rows discarded |
 | 4.4 Feature Engineering | Created `is_weekend`, `is_rush_hour`, `is_night`, `is_wet`, `speed_band` motivated by EDA findings | Seven additional features capturing temporal and environmental risk context |
 | 4.5 Outlier Handling | Winsorised `Distance` at 99th percentile; filtered coordinates outside NSW geographic bounds | Removed erroneous GPS outliers without discarding crash records |
 | 4.6 Encoding | All character columns converted to `factor`; LGA levels with <1% frequency pooled into `"Other"` | Reduced LGA cardinality; factors compatible with all six model packages |
-| 4.7 Train/Test Split | Stratified 80/20 split on 2020–2023 data; 2024 sealed as temporal holdout | Test set and holdout unseen during all training and tuning |
+| 4.7 Train/Test Split | Stratified 80/20 split on 2020-2023 data; 2024 sealed as temporal holdout | Test set and holdout unseen during all training and tuning |
 | 4.8 Class Imbalance | Inverse-frequency class weights computed from training set; SMOTE configured inside CV folds for KNN and Naive Bayes | Fatal class (~1.4%) upweighted without contaminating the test set |
 | 4.9 CV Setup | Two `trainControl` objects: `cv_ctrl` (5-fold) and `cv_ctrl_smote` (5-fold + SMOTE) | Consistent evaluation protocol across all five caret-based models |
 
-**Training subsample.** All six models are trained on `df_train_sub`, a stratified 50% random sample of `df_train` (~55,000 rows), rather than the full training set. Two considerations motivate this choice. First, *fairness*: if computationally intensive models (Random Forest, XGBoost, KNN) were trained on a subsample while fast models (Logistic Regression, Decision Tree, Naive Bayes) used the full set, the comparison in §7 would be confounded by training set size rather than reflecting genuine algorithmic differences. Training all models on identical data eliminates this confounder. Second, *feasibility*: ensemble methods and instance-based methods scale poorly with $n$ - Random Forest and XGBoost training time grows roughly as $O(n \cdot p \cdot T)$ in the number of trees $T$, and KNN prediction is $O(n)$ per test point; fitting these on the full ~110,000-row training set within a single knit session is impractical. The 50% subsample preserves class proportions via stratified sampling (`createDataPartition`), retaining approximately 770 Fatal examples - sufficient for stable model estimation. For the final submission, replacing `df_train_sub` with `df_train` throughout §5–6 will retrain all models on the complete dataset.
+**Training subsample.** All six models are trained on `df_train_sub`, a stratified 50% random sample of `df_train` (~55,000 rows), rather than the full training set. Two considerations motivate this choice. First, *fairness*: if computationally intensive models (Random Forest, XGBoost, KNN) were trained on a subsample while fast models (Logistic Regression, Decision Tree, Naive Bayes) used the full set, the comparison in §7 would be confounded by training set size rather than reflecting genuine algorithmic differences. Training all models on identical data eliminates this confounder. Second, *feasibility*: ensemble methods and instance-based methods scale poorly with $n$ - Random Forest and XGBoost training time grows roughly as $O(n \cdot p \cdot T)$ in the number of trees $T$, and KNN prediction is $O(n)$ per test point; fitting these on the full ~110,000-row training set within a single knit session is impractical. The 50% subsample preserves class proportions via stratified sampling (`createDataPartition`), retaining approximately 770 Fatal examples - sufficient for stable model estimation. For the final submission, replacing `df_train_sub` with `df_train` throughout §5-6 will retrain all models on the complete dataset.
 
 ------------------------------------------------------------------------
 
@@ -337,7 +338,7 @@ Six models selected to cover a range of complexity and interpretability. All imp
 A Multinomial Logistic Regression model was fitted as an interpretable parametric baseline using the multinom function from the nnet package via the caret framework. To ensure a fair comparison across all algorithms in §7, the model was trained on the identical stratified 50% subsample (df_train_sub, ~55,000 rows). Given the severe class imbalance, Synthetic Minority Over-sampling Technique (SMOTE) was applied. Crucially, SMOTE was configured strictly within the 5-fold cross-validation resampling loops (cv_ctrl_smote) to prevent data leakage and ensure that synthetic Fatal examples were never evaluated in the validation holdouts. A zero-variance filter (nzv) was also applied to drop dummy variables with near-zero variance that could cause rank deficiencies.
 
 ```{r model-lr, message=FALSE, warning=FALSE}
-# Multinomial Logistic Regression — baseline fit only (no tuning here)
+# Multinomial Logistic Regression  -  baseline fit only (no tuning here)
 # Logistic uses a local model-specific cleaned dataset so that we do not need to
 # modify the shared preprocessing pipeline written for the whole group.
 # Class imbalance is handled via SMOTE inside CV folds.
@@ -375,7 +376,7 @@ weighted_f1_lr <- weighted.mean(f1_lr_vec[names(test_props_lr)], test_props_lr, 
 kappa_lr <- as.numeric(cm_lr$overall["Kappa"])
 
 cat(sprintf(
-  "   Logistic Regression — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  "   Logistic Regression  -  Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
   macro_f1_lr, fatal_recall_lr, weighted_f1_lr, kappa_lr
 ))
 
@@ -386,7 +387,7 @@ p_lr_cm <- as.data.frame(cm_lr$table) %>%
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
   scale_fill_gradient(low = "white", high = "#1F4E79") +
   labs(
-    title = "Logistic Regression — Confusion Matrix (Test Set)",
+    title = "Logistic Regression  -  Confusion Matrix (Test Set)",
     subtitle = paste0("Fatal Recall: ", round(fatal_recall_lr, 3),
                       "  |  Macro-F1: ", round(macro_f1_lr, 3))
   ) +
@@ -395,7 +396,7 @@ p_lr_cm <- as.data.frame(cm_lr$table) %>%
 print(p_lr_cm)
 ggsave("plots/5_1_logistic_regression_confusion_matrix.png", p_lr_cm, width = 7, height = 5, dpi = 150)
 
-# Coefficient plot — top 15 absolute coefficients across non-reference classes
+# Coefficient plot  -  top 15 absolute coefficients across non-reference classes
 coef_lr <- coef(model_lr$finalModel)
 
 if (is.null(dim(coef_lr))) {
@@ -422,7 +423,7 @@ p_lr_coef <- ggplot(coef_lr_df, aes(x = reorder(Feature, abs_coef), y = as.numer
   geom_col(position = "dodge") +
   coord_flip() +
   labs(
-    title = "Logistic Regression — Largest Coefficients (Top 15)",
+    title = "Logistic Regression  -  Largest Coefficients (Top 15)",
     x = NULL,
     y = "Coefficient (log-odds)"
   ) +
@@ -438,12 +439,12 @@ The baseline Logistic Regression achieved a Macro-F1 of 0.4395, a Weighted F1 of
 A Decision Tree (CART) was fitted using the rpart package to provide non-linear, hierarchical if-then rules that are easily interpretable by non-technical stakeholders. To bypass the computational bottleneck associated with rpart evaluating high-cardinality categorical splits in a multi-class setting, the feature space was explicitly one-hot encoded using dummyVars prior to training. The model was trained on the standard 50% subsample (df_train_sub) with the default complexity parameter (cp = 0.01). Instead of SMOTE, class imbalance for the tree was addressed algorithmically by passing inverse-frequency class weights directly to the weights argument, ensuring the splitting criteria actively prioritized node purity for the rare Fatal class.
 
 ```{r model-dt, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
-# Decision Tree — baseline fit only (no tuning here)
+# Decision Tree  -  baseline fit only (no tuning here)
 # Direct rpart() route is used here instead of caret::train(method = "rpart")
 # because caret's formula/grid interface proved unstable with this dataset's
 # original column naming + severe class imbalance. We only clean data locally
 # inside this DT section, without changing the shared preprocessing pipeline.
-# Decision Tree — baseline fit only (with One-Hot Encoding fix)
+# Decision Tree  -  baseline fit only (with One-Hot Encoding fix)
 set.seed(42)
 
 # 1. First standardize column names with `make.names` to prevent `dummyVars` from failing to locate columns due to spaces.
@@ -489,13 +490,13 @@ weighted_f1_dt <- weighted.mean(f1_dt_vec[names(test_props_dt)], test_props_dt, 
 kappa_dt <- as.numeric(cm_dt$overall["Kappa"])
 
 cat(sprintf(
-  "   Decision Tree — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  "   Decision Tree  -  Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
   macro_f1_dt, fatal_recall_dt, weighted_f1_dt, kappa_dt
 ))
 
 printcp(model_dt)
 
-# Tree diagram — use a simpler, more robust plotting configuration
+# Tree diagram  -  use a simpler, more robust plotting configuration
 png("plots/5_2_decision_tree_diagram.png", width = 1200, height = 800, res = 150)
 rpart.plot(
   model_dt,
@@ -525,7 +526,7 @@ p_dt_cm <- as.data.frame(cm_dt$table) %>%
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
   scale_fill_gradient(low = "white", high = "#1F4E79") +
   labs(
-    title = "Decision Tree — Confusion Matrix (Test Set)",
+    title = "Decision Tree  -  Confusion Matrix (Test Set)",
     subtitle = paste0("Fatal Recall: ", round(fatal_recall_dt, 3),
                       "  |  Macro-F1: ", round(macro_f1_dt, 3))
   ) +
@@ -535,27 +536,27 @@ print(p_dt_cm)
 ggsave("plots/5_2_decision_tree_confusion_matrix.png", p_dt_cm, width = 7, height = 5, dpi = 150)
 ```
 
-The Decision Tree achieved a Macro-F1 of 0.4290, a Weighted F1 of 0.5837, and a Kappa of 0.2430. Similar to the logistic baseline, the model successfully satisfied the primary safety constraint, yielding a strong Fatal Recall of 0.7287. The tree's hierarchical structure acts as an intrinsic feature selector: the plot reveals that Street lighting, Distance, and the involvement of vulnerable units (Motorcycles and Pedestrians) dictate the primary root and child splits. This explicit segmentation confirms that severe crashes are not randomly distributed but are heavily concentrated in specific structural scenarios—namely, unprotected traffic units navigating poorly lit or remote environmental contexts.
+The Decision Tree achieved a Macro-F1 of 0.4290, a Weighted F1 of 0.5837, and a Kappa of 0.2430. Similar to the logistic baseline, the model successfully satisfied the primary safety constraint, yielding a strong Fatal Recall of 0.7287. The tree's hierarchical structure acts as an intrinsic feature selector: the plot reveals that Street lighting, Distance, and the involvement of vulnerable units (Motorcycles and Pedestrians) dictate the primary root and child splits. This explicit segmentation confirms that severe crashes are not randomly distributed but are heavily concentrated in specific structural scenarios - namely, unprotected traffic units navigating poorly lit or remote environmental contexts.
 
 #### 5.3 Random Forest
 
 A Random Forest (Breiman, 2001) was fitted using the `randomForest` package. Unlike the other models, `caret`'s CV wrapper was bypassed because the Fatal class (~1.4%) caused some folds to contain zero Fatal training examples, making all fold-level metrics `NA` and halting training. Instead, the model's built-in Out-Of-Bag (OOB) error is used as the cross-validation estimate; OOB error is mathematically equivalent to leave-one-out CV for bagged ensembles and is unbiased (Breiman, 2001). The model was fitted with `mtry` = $\lfloor\sqrt{p}\rfloor$ (default) and `ntree` = 100. All six models in §5 are trained on the same stratified 50% subsample (`df_train_sub`, ~55,000 rows) to ensure a fair comparison in §7; class imbalance was addressed via inverse-frequency class weights passed to the `classwt` argument.
 
 ```{r model-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
-# Call randomForest() directly — caret's train() CV wrapper fails on this dataset:
+# Call randomForest() directly  -  caret's train() CV wrapper fails on this dataset:
 # Fatal class (~1.4%) causes some CV folds to produce zero Fatal predictions,
 # making all fold metrics NA and crashing caret. RF's built-in OOB error is an
 # unbiased estimate of generalisation error and makes CV redundant anyway.
 
 # randomForest cannot handle factors with >53 levels or NAs in predictors.
-# na.roughfix() imputes residual NAs: numeric → column median, factor → mode.
-# Using df_train_sub (50%) — swap to df_train for final submission
+# na.roughfix() imputes residual NAs: numeric -> column median, factor -> mode.
+# Using df_train_sub (50%)  -  swap to df_train for final submission
 rf_x_train <- na.roughfix(df_train_sub %>%
   select(-`Degree of crash`) %>%
   select(where(~ !is.factor(.) || nlevels(.) <= 53)) %>%
   droplevels())
 
-# Align test factor levels to training — unseen levels become NA, then imputed
+# Align test factor levels to training  -  unseen levels become NA, then imputed
 rf_x_test_raw <- df_test %>% select(all_of(names(rf_x_train)))
 for (col in names(rf_x_test_raw)) {
   if (is.factor(rf_x_test_raw[[col]]))
@@ -582,7 +583,7 @@ weighted_f1_rf  <- weighted.mean(cm_rf$byClass[, "F1"],
 kappa_rf        <- cm_rf$overall["Kappa"]
 
 cat(sprintf(
-  "   Random Forest —  Test Set Metrics\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  "   Random Forest  -   Test Set Metrics\nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
   model_rf$err.rate[100, "OOB"], macro_f1_rf, fatal_recall_rf, weighted_f1_rf, kappa_rf
 ))
 
@@ -616,13 +617,13 @@ print(p_rf_varimp)
 ggsave("plots/5_3_random_forest_variable_importance_top15.png", p_rf_varimp, width = 7, height = 5, dpi = 150)
 ```
 
-The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weighted F1 of 0.813, and Cohen's Kappa of 0.583 on the test set — a substantial improvement over a naive majority-class baseline. Fatal Recall was 0.144: the model correctly identified 54 of 376 fatal crashes, with the remaining 322 classified as Injury (318) or Non-casualty (4). While Fatal Recall is below the target threshold of 0.50, this is expected at the default `mtry` given the severe class imbalance; tuning is addressed in §6.3. The variable importance plot (Mean Decrease in Accuracy) reveals that **Street lighting**, **LGA**, **Day of week**, and **Month of crash** are the four strongest predictors, suggesting that environmental context and temporal patterns dominate crash severity over vehicle-type features. The inclusion of **Latitude** and **Longitude** in the top ten confirms that spatial location carries substantial residual predictive signal beyond the categorical LGA variable.
+The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weighted F1 of 0.813, and Cohen's Kappa of 0.583 on the test set  -  a substantial improvement over a naive majority-class baseline. Fatal Recall was 0.144: the model correctly identified 54 of 376 fatal crashes, with the remaining 322 classified as Injury (318) or Non-casualty (4). While Fatal Recall is below the target threshold of 0.50, this is expected at the default `mtry` given the severe class imbalance; tuning is addressed in §6.3. The variable importance plot (Mean Decrease in Accuracy) reveals that **Street lighting**, **LGA**, **Day of week**, and **Month of crash** are the four strongest predictors, suggesting that environmental context and temporal patterns dominate crash severity over vehicle-type features. The inclusion of **Latitude** and **Longitude** in the top ten confirms that spatial location carries substantial residual predictive signal beyond the categorical LGA variable.
 
 #### 5.4 XGBoost
 
 ```{r model-xgb, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.4)
-# Use DEFAULT hyperparameters — do NOT tune here
+# TODO: [member name]  -  MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.4)
+# Use DEFAULT hyperparameters  -  do NOT tune here
 # method = "xgbTree" | requires one-hot encoding via model.matrix(~ . - 1)
 # CV: cv_ctrl | Weights: scale_pos_weight in xgb params
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
@@ -636,8 +637,8 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 #### 5.5 K-Nearest Neighbours
 
 ```{r model-knn, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.5)
-# Use DEFAULT k — do NOT tune here (default k = 5 or caret's single default)
+# TODO: [member name]  -  MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.5)
+# Use DEFAULT k  -  do NOT tune here (default k = 5 or caret's single default)
 # method = "kknn" | preProcess = c("center", "scale") | CV: cv_ctrl_smote
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_knn, fatal_recall_knn (needed for §6.5 before/after table)
@@ -649,8 +650,8 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 #### 5.6 Naive Bayes
 
 ```{r model-nb, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.6)
-# Use DEFAULT hyperparameters (usekernel = FALSE, laplace = 0) — do NOT tune here
+# TODO: [member name]  -  MODEL FITTING ONLY (rubric §5 = basic fit, tuning goes in §6.6)
+# Use DEFAULT hyperparameters (usekernel = FALSE, laplace = 0)  -  do NOT tune here
 # method = "naive_bayes" | CV: cv_ctrl_smote | Weights: via SMOTE + class prior
 # Produce: confusionMatrix() on df_test, heatmap, 4 metrics
 # Save metrics as: macro_f1_nb, fatal_recall_nb (needed for §6.6 before/after table)
@@ -668,7 +669,7 @@ The Random Forest achieved an OOB error rate of 18.4%, Macro-F1 of 0.614, Weight
 The primary hyperparameter for the Multinomial Logistic Regression is decay, which applies an L2 regularization penalty to the model's coefficients. Regularization is particularly critical here to prevent the model from overfitting to the synthetic minority samples generated by SMOTE within the cross-validation folds. A tuning grid was evaluated over a sequence of penalty values (decay $\in \{0, 0.001, 0.01, 0.1\}$) via 5-fold cross-validation.
 
 ```{r improve-lr, message=FALSE, warning=FALSE}
-# Multinomial Logistic Regression — Improvement
+# Multinomial Logistic Regression  -  Improvement
 set.seed(42)
 
 # 1. Define the tuning grid
@@ -700,7 +701,7 @@ p_lr_tune <- ggplot(model_lr_tuned$results, aes(x = as.factor(decay), y = Mean_F
            label = paste("Best decay =", best_decay),
            hjust = -0.2, colour = "#C0392B", size = 3.5) +
   labs(
-    title = "Logistic Regression — Tuning: decay vs Macro-F1",
+    title = "Logistic Regression  -  Tuning: decay vs Macro-F1",
     x = "Weight Decay (L2 Regularization Penalty)",
     y = "Cross-Validated Macro-F1"
   ) +
@@ -718,7 +719,7 @@ f1_lr_tuned_vec <- setNames(cm_lr_tuned$byClass[, "F1"], gsub("Class: ", "", row
 macro_f1_lr_tuned <- mean(f1_lr_tuned_vec, na.rm = TRUE)
 
 cat(sprintf(
-  "   Logistic Regression (Tuned) — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\n",
+  "   Logistic Regression (Tuned)  -  Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\n",
   macro_f1_lr_tuned, fatal_recall_lr_tuned
 ))
 
@@ -729,7 +730,7 @@ before_after_lr <- data.frame(
   `Fatal Recall` = round(c(fatal_recall_lr, fatal_recall_lr_tuned), 4),
   check.names = FALSE
 )
-knitr::kable(before_after_lr, caption = "Logistic Regression — Before vs After Tuning")
+knitr::kable(before_after_lr, caption = "Logistic Regression  -  Before vs After Tuning")
 ```
 
 The tuning process identified decay = 0.01 as the optimal threshold, maximizing the cross-validated Macro-F1 score. Retraining the model with this moderate penalty yielded a subtle but important shift in the test set metrics: Macro-F1 improved from 0.4395 to 0.4417, while Fatal Recall decreased slightly from 0.7739 to 0.7606. This reflects a classic precision-recall trade-off. Without regularization (decay = 0), the model aggressively predicted the Fatal class to minimize the SMOTE-induced loss, leading to a high recall but an excess of false positives. Applying the L2 penalty constrained these extreme weights, forcing the model to be slightly more conservative. This reduced false alarms and improved the overall Macro-F1 balance. Given that the tuned Fatal Recall of 0.7606 still robustly exceeds the 0.50 safety constraint, this regularized model demonstrates superior generalization and replaces the baseline.
@@ -739,7 +740,7 @@ The tuning process identified decay = 0.01 as the optimal threshold, maximizing 
 To optimize the Decision Tree, Cost-Complexity Pruning was applied to control the tree's depth and mitigate overfitting. The baseline model was artificially constrained by the default complexity parameter (cp = 0.01). To determine the true optimal architecture, a deeper tree was initially grown with a relaxed threshold (cp = 0.001), and the cross-validation error (xerror) was tracked across varying tree sizes. Minimization of the xerror identified an optimal split threshold of cp = 0.00115.
 
 ```{r improve-dt, message=FALSE, warning=FALSE, results='hold', out.width='55%', fig.align='center'}
-# Decision Tree improvement — tune complexity by pruning via CP table
+# Decision Tree improvement  -  tune complexity by pruning via CP table
 set.seed(42)
 
 # 1. First grow a deeper tree (relax the cp parameter to 0.001) to find the optimal split points
@@ -757,11 +758,11 @@ cat("Best cp from xerror minimisation:", best_cp, "\n")
 
 # 3. Plot and save CP tuning graph
 png("plots/6_2_decision_tree_cp_plot.png", width = 1000, height = 700, res = 150)
-plotcp(model_dt_deep, main = "Decision Tree — CP Tuning Plot")
+plotcp(model_dt_deep, main = "Decision Tree - CP Tuning Plot")
 text(x = best_cp, y = min(model_dt_deep$cptable[, "xerror"]), labels = paste("best cp =", signif(best_cp, 3)), pos = 4, cex = 0.8)
-dev.off()
+invisible(dev.off())
 
-plotcp(model_dt_deep, main = "Decision Tree — CP Tuning Plot")
+plotcp(model_dt_deep, main = "Decision Tree - CP Tuning Plot")
 
 # 4. 用找到的最优 CP 对深树进行剪枝
 model_dt_tuned <- prune(model_dt_deep, cp = best_cp)
@@ -777,7 +778,7 @@ weighted_f1_dt_tuned <- weighted.mean(f1_dt_tuned_vec[names(test_props_dt)], tes
 kappa_dt_tuned <- as.numeric(cm_dt_tuned$overall["Kappa"])
 
 cat(sprintf(
-  "   Decision Tree (Tuned) — Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
+  "   Decision Tree (Tuned)  -  Test Set Metrics\nMacro-F1     : %.4f\nFatal Recall : %.4f\nWeighted F1  : %.4f\nKappa        : %.4f\n",
   macro_f1_dt_tuned, fatal_recall_dt_tuned, weighted_f1_dt_tuned, kappa_dt_tuned
 ))
 
@@ -788,7 +789,7 @@ before_after_dt <- data.frame(
   `Fatal Recall` = round(c(fatal_recall_dt, fatal_recall_dt_tuned), 4),
   check.names = FALSE
 )
-knitr::kable(before_after_dt, caption = "Decision Tree — Before vs After Pruning")
+knitr::kable(before_after_dt, caption = "Decision Tree  -  Before vs After Pruning")
 
 # 7. Plot Tuned Confusion Matrix heatmap
 p_dt_tuned_cm <- as.data.frame(cm_dt_tuned$table) %>%
@@ -797,7 +798,7 @@ p_dt_tuned_cm <- as.data.frame(cm_dt_tuned$table) %>%
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
   scale_fill_gradient(low = "white", high = "#1F4E79") +
   labs(
-    title = "Decision Tree (Tuned) — Confusion Matrix (Test Set)",
+    title = "Decision Tree (Tuned)  -  Confusion Matrix (Test Set)",
     subtitle = paste0("Fatal Recall: ", round(fatal_recall_dt_tuned, 3),
                       "  |  Macro-F1: ", round(macro_f1_dt_tuned, 3))
   ) +
@@ -811,11 +812,11 @@ Evaluating this deeper, tuned tree on the test set revealed a significant diverg
 
 #### 6.3 Random Forest - Improvement
 
-The primary hyperparameter for Random Forest is `mtry` — the number of candidate variables randomly sampled at each split. The default value of $\lfloor\sqrt{p}\rfloor$ is not necessarily optimal, especially for imbalanced multi-class problems where Fatal examples are sparse. `tuneRF()` was used to search over a sequence of `mtry` values via OOB error, using a 20,000-row subsample of the training features to keep search time tractable (OOB rankings stabilise at far smaller sample sizes than the full dataset).
+The primary hyperparameter for Random Forest is `mtry`  -  the number of candidate variables randomly sampled at each split. The default value of $\lfloor\sqrt{p}\rfloor$ is not necessarily optimal, especially for imbalanced multi-class problems where Fatal examples are sparse. `tuneRF()` was used to search over a sequence of `mtry` values via OOB error, using a 20,000-row subsample of the training features to keep search time tractable (OOB rankings stabilise at far smaller sample sizes than the full dataset).
 
 ```{r improve-rf, message=FALSE, warning=FALSE, fig.show='hold', out.width='33%'}
 # Use a 20k-row subsample of rf_x_train to search mtry quickly via tuneRF().
-# Finding the best mtry doesn't need the full dataset — OOB rankings are stable
+# Finding the best mtry doesn't need the full dataset  -  OOB rankings are stable
 # on a representative subsample. Final model is still fit on the full training set.
 set.seed(42)
 tune_idx <- sample(nrow(rf_x_train), min(nrow(rf_x_train), 20000))
@@ -843,13 +844,13 @@ p_rf_tune <- as.data.frame(tune_result) %>%
   annotate("text", x = best_mtry, y = max(tune_result[, "OOBError"]),
            label = paste("Best mtry =", best_mtry),
            hjust = -0.1, colour = "#C0392B", size = 3.5) +
-  labs(title = "Random Forest — Tuning: mtry vs OOB Error (20k subsample)",
+  labs(title = "Random Forest  -  Tuning: mtry vs OOB Error (20k subsample)",
        x = "mtry (variables randomly sampled per split)", y = "OOB Error Rate") +
   theme_minimal(base_size = 12)
 print(p_rf_tune)
 ggsave("plots/6_3_random_forest_mtry_tuning_curve.png", p_rf_tune, width = 7, height = 5, dpi = 150)
 
-# Final tuned model fit — using df_train_sub (50%), swap to df_train for final submission
+# Final tuned model fit  -  using df_train_sub (50%), swap to df_train for final submission
 set.seed(42)
 model_rf_tuned <- randomForest(
   x          = rf_x_train,
@@ -868,7 +869,7 @@ weighted_f1_tuned  <- weighted.mean(cm_rf_tuned$byClass[, "F1"],
 kappa_tuned        <- cm_rf_tuned$overall["Kappa"]
 
 cat(sprintf(
-  "    RF Tuned  —  Test Set Metrics \nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
+  "    RF Tuned   -   Test Set Metrics \nOOB error rate : %.4f\nMacro-F1       : %.4f\nFatal Recall   : %.4f\nWeighted F1    : %.4f\nKappa          : %.4f\n",
   model_rf_tuned$err.rate[100, "OOB"], macro_f1_tuned, fatal_recall_tuned, weighted_f1_tuned, kappa_tuned
 ))
 
@@ -879,7 +880,7 @@ data.frame(
   `Macro-F1`     = round(c(macro_f1_rf,    macro_f1_tuned),    4),
   `Fatal Recall` = round(c(fatal_recall_rf, fatal_recall_tuned), 4),
   check.names = FALSE
-) %>% knitr::kable(caption = "Random Forest — Before vs After Tuning")
+) %>% knitr::kable(caption = "Random Forest  -  Before vs After Tuning")
 
 # Plot 2: OOB error vs ntree convergence curve
 p_rf_oob <- data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
@@ -892,13 +893,13 @@ p_rf_oob <- data.frame(ntree = seq_len(nrow(model_rf_tuned$err.rate)),
 print(p_rf_oob)
 ggsave("plots/6_3_random_forest_oob_convergence.png", p_rf_oob, width = 7, height = 5, dpi = 150)
 
-# Plot 3: Confusion matrix heatmap — tuned model (last in row)
+# Plot 3: Confusion matrix heatmap  -  tuned model (last in row)
 p_rf_tuned_cm <- as.data.frame(cm_rf_tuned$table) %>%
   ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
   geom_tile(colour = "white") +
   geom_text(aes(label = Freq), size = 6, fontface = "bold") +
   scale_fill_gradient(low = "white", high = "#1F4E79") +
-  labs(title = "Random Forest (Tuned) — Confusion Matrix (Test Set)",
+  labs(title = "Random Forest (Tuned)  -  Confusion Matrix (Test Set)",
        subtitle = paste0("Fatal Recall: ", round(fatal_recall_tuned, 3),
                          "  |  Macro-F1: ", round(macro_f1_tuned, 3))) +
   theme_minimal(base_size = 12) +
@@ -907,12 +908,12 @@ print(p_rf_tuned_cm)
 ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, width = 7, height = 5, dpi = 150)
 ```
 
-`tuneRF` identified **mtry = 13** as optimal, more than double the default of 6. Retraining with this value yielded consistent improvements across every metric: OOB error dropped from 18.4% to 18.1%, Macro-F1 increased from 0.614 to 0.634, Fatal Recall improved from 0.144 to 0.181, Weighted F1 from 0.813 to 0.815, and Kappa from 0.583 to 0.590. The OOB convergence curve confirms that 100 trees is sufficient — the OOB error stabilises before 75 trees, indicating no benefit from growing additional trees. The improvement in Fatal Recall (+0.037) is particularly meaningful: a larger `mtry` forces each tree to consider more variables per split, which helps the ensemble find the rare feature combinations that characterise fatal crashes rather than defaulting to the majority Injury signal. The confusion matrix shows that the tuned model correctly identified 68 fatal crashes (up from 54 with the default `mtry`), with the majority of misclassifications falling into Injury (302) rather than Non-casualty (6) — a safer failure mode, as fatal crashes are at least flagged as high-severity events.
+`tuneRF` identified **mtry = 13** as optimal, more than double the default of 6. Retraining with this value yielded consistent improvements across every metric: OOB error dropped from 18.4% to 18.1%, Macro-F1 increased from 0.614 to 0.634, Fatal Recall improved from 0.144 to 0.181, Weighted F1 from 0.813 to 0.815, and Kappa from 0.583 to 0.590. The OOB convergence curve confirms that 100 trees is sufficient  -  the OOB error stabilises before 75 trees, indicating no benefit from growing additional trees. The improvement in Fatal Recall (+0.037) is particularly meaningful: a larger `mtry` forces each tree to consider more variables per split, which helps the ensemble find the rare feature combinations that characterise fatal crashes rather than defaulting to the majority Injury signal. The confusion matrix shows that the tuned model correctly identified 68 fatal crashes (up from 54 with the default `mtry`), with the majority of misclassifications falling into Injury (302) rather than Non-casualty (6)  -  a safer failure mode, as fatal crashes are at least flagged as high-severity events.
 
 #### 6.4 XGBoost - Improvement
 
 ```{r improve-xgb, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.4)
+# TODO: [member name]  -  MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.4)
 # Tune: nrounds, max_depth, eta via expand.grid(nrounds=c(50,100,200), max_depth=c(3,6), eta=c(0.01,0.1,0.3))
 # Plot: best nrounds vs Mean_F1 curve from model_xgb_tuned$results
 # Table: before/after using macro_f1_xgb / fatal_recall_xgb from §5.4 vs tuned values
@@ -921,7 +922,7 @@ ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, widt
 #### 6.5 K-Nearest Neighbours - Improvement
 
 ```{r improve-knn, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.5)
+# TODO: [member name]  -  MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.5)
 # Tune: kmax via tuneGrid = expand.grid(kmax = c(5, 11, 21, 31, 51), distance = 2, kernel = "optimal")
 # Plot: k vs Mean_F1 curve from model_knn_tuned$results
 # Table: before/after using macro_f1_knn / fatal_recall_knn from §5.5 vs tuned values
@@ -930,7 +931,7 @@ ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, widt
 #### 6.6 Naive Bayes - Improvement
 
 ```{r improve-nb, message=FALSE, warning=FALSE}
-# TODO: [member name] — MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.6)
+# TODO: [member name]  -  MODEL IMPROVEMENT (rubric §6 = tuning/improvement, basic fit is in §5.6)
 # Tune: usekernel and laplace via tuneGrid = expand.grid(usekernel = c(TRUE, FALSE), laplace = c(0, 0.5, 1), adjust = 1)
 # Plot: bar chart of Macro-F1 across tuning combinations
 # Table: before/after using macro_f1_nb / fatal_recall_nb from §5.6 vs tuned values
@@ -940,22 +941,22 @@ ggsave("plots/6_3_random_forest_tuned_confusion_matrix.png", p_rf_tuned_cm, widt
 
 ### 7 Model Evaluation & Selection
 
-<!-- TODO: [member name] — comparison table (6 models × 4 metrics), best model selection + justification -->
+<!-- TODO: [member name]  -  comparison table (6 models × 4 metrics), best model selection + justification -->
 
 ------------------------------------------------------------------------
 
 ### 8 Final Results & Conclusion
 
-<!-- TODO: [member name] — answer RQ, top predictors, practical implications, process reflection -->
+<!-- TODO: [member name]  -  answer RQ, top predictors, practical implications, process reflection -->
 
 ------------------------------------------------------------------------
 
 ### References
 
-<!-- TODO: [member name] — APA 7th format references for all sources cited -->
+<!-- TODO: [member name]  -  APA 7th format references for all sources cited -->
 
 ------------------------------------------------------------------------
 
 ### Acknowledgement of AI
 
-<!-- TODO: [member name] — AI acknowledgement statement -->
+<!-- TODO: [member name]  -  AI acknowledgement statement -->
