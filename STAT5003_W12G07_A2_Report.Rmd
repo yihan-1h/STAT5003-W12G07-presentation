@@ -437,7 +437,7 @@ The baseline Logistic Regression achieved a Macro-F1 of 0.4395, a Weighted F1 of
 
 A Decision Tree (CART) was fitted using the rpart package to provide non-linear, hierarchical if-then rules that are easily interpretable by non-technical stakeholders. To bypass the computational bottleneck associated with rpart evaluating high-cardinality categorical splits in a multi-class setting, the feature space was explicitly one-hot encoded using dummyVars prior to training. The model was trained on the standard 50% subsample (df_train_sub) with the default complexity parameter (cp = 0.01). Instead of SMOTE, class imbalance for the tree was addressed algorithmically by passing inverse-frequency class weights directly to the weights argument, ensuring the splitting criteria actively prioritized node purity for the rare Fatal class.
 
-```{r model-dt, message=FALSE, warning=FALSE}
+```{r model-dt, message=FALSE, warning=FALSE, fig.show='hold', out.width='50%'}
 # Decision Tree — baseline fit only (no tuning here)
 # Direct rpart() route is used here instead of caret::train(method = "rpart")
 # because caret's formula/grid interface proved unstable with this dataset's
@@ -506,7 +506,7 @@ rpart.plot(
   cex = 0.7,
   main = "Decision Tree Diagram"
 )
-dev.off()
+invisible(dev.off())
 
 rpart.plot(
   model_dt,
@@ -738,7 +738,7 @@ The tuning process identified decay = 0.01 as the optimal threshold, maximizing 
 
 To optimize the Decision Tree, Cost-Complexity Pruning was applied to control the tree's depth and mitigate overfitting. The baseline model was artificially constrained by the default complexity parameter (cp = 0.01). To determine the true optimal architecture, a deeper tree was initially grown with a relaxed threshold (cp = 0.001), and the cross-validation error (xerror) was tracked across varying tree sizes. Minimization of the xerror identified an optimal split threshold of cp = 0.00115.
 
-```{r improve-dt, message=FALSE, warning=FALSE}
+```{r improve-dt, message=FALSE, warning=FALSE, results='hold', out.width='55%', fig.align='center'}
 # Decision Tree improvement — tune complexity by pruning via CP table
 set.seed(42)
 
